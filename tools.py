@@ -30,8 +30,17 @@ fetch_relevant_documents_def = {
     }
 }
   
-async def fetch_relevant_documents_handler(params):
-    query = params['query']
+# async def fetch_relevant_documents_handler(params):
+#     query = params['query']
+#     search_results = search_client.search(
+#         search_text=query,
+#         top=5,
+#         select="content"
+#     )
+#     sources_formatted = "\n".join([f'{document["content"]}' for document in search_results])
+#     return sources_formatted
+
+async def fetch_relevant_documents_handler(query: str):
     search_results = search_client.search(
         search_text=query,
         top=5,
@@ -39,6 +48,7 @@ async def fetch_relevant_documents_handler(params):
     )
     sources_formatted = "\n".join([f'{document["content"]}' for document in search_results])
     return sources_formatted
+
 
 # Tools list
 tools = [

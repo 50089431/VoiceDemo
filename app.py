@@ -11,6 +11,8 @@ from azure_tts import Client as AzureTTSClient
 from tools import tools
 voice = "en-US-AlloyTurboMultilingualNeural"
 
+"""A dictionary mapping languages to their respective Azure TTS voices.
+When a user selects a language, the corresponding TTS voice is used."""
 VOICE_MAPPING = {
     "english": "en-IN-AnanyaNeural",
     "hindi": "hi-IN-AnanyaNeural",
@@ -29,11 +31,21 @@ VOICE_MAPPING = {
 tts_sentence_end = [ ".", "!", "?", ";", "。", "！", "？", "；", "\n", "।"]
 async def setup_openai_realtime(system_prompt: str):
     """Instantiate and configure the OpenAI Realtime Client"""
-    openai_realtime = RealtimeClient(system_prompt = system_prompt)
-    cl.user_session.set("track_id", str(uuid4()))
-    voice = VOICE_MAPPING.get(cl.user_session.get("Language"))
+    openai_realtime = RealtimeClient(system_prompt = system_prompt) #Creates an OpenAI Realtime Client instance with a system_prompt.
+    cl.user_session.set("track_id", str(uuid4())) #Generates a unique track ID for the session.
+    voice = VOICE_MAPPING.get(cl.user_session.get("Language")) #Retrieves the voice selection from cl.user_session.
     collected_messages = []
+    
     async def handle_conversation_updated(event):
+        '''
+        Listens for live updates from OpenAI's real-time model.
+        If audio is received, it sends the voice output to the user.
+        If transcription text is received:
+            Stores it in collected_messages.
+            When a sentence-ending character (".", "?", "।") is detected:
+                Converts text to speech using Azure TTS.
+                Sends audio output to the user.
+        '''
         item = event.get("item")
         delta = event.get("delta")
         
@@ -70,7 +82,10 @@ async def setup_openai_realtime(system_prompt: str):
             logger.error(traceback.format_exc())
     
     async def handle_conversation_interrupt(event):
-        """Used to cancel the client previous audio playback."""
+        """If the conversation interrupts, it:
+            Clears collected messages.
+            Sends an audio stop signal to cancel playback.
+            Used to cancel the client previous audio playback."""
         cl.user_session.set("track_id", str(uuid4()))
         try:
             collected_messages.clear()
@@ -115,6 +130,7 @@ def auth_callback(username: str, password: str):
 
 @cl.on_chat_start
 async def start():
+    '''Asks the user to select a language, toggle Azure Voice, and set AI temperature.'''
     settings = await cl.ChatSettings([
         Select(
             id="Language",
@@ -132,12 +148,19 @@ async def start():
             step=0.1,
         )
     ]).send()
+
+    #Calls setup_agent(settings) to configure the AI.
     await setup_agent(settings)
 
 
 @cl.on_settings_update
 async def setup_agent(settings):
-    system_prompt = """You're a customer support voice bot . Be consise in your response and speak in <customer_language> language always. """    
+    '''When a user sends a text message, it forwards it to OpenAI for processing.'''
+
+    system_prompt = """
+    You're a customer support voice bot working to assist customers for 2-Wheeler loan. 
+    Be concise in your response and speak in <customer_language> language always. 
+    """    
 
     cl.user_session.set("useAzureVoice", settings["useAzureVoice"])
     cl.user_session.set("Temperature", settings["Temperature"])
@@ -145,7 +168,7 @@ async def setup_agent(settings):
     app_user = cl.user_session.get("user")
     identifier = app_user.identifier if app_user else "admin"
     await cl.Message(
-        content="Hi, Welcome to ShopMe. How can I help you?. Press `P` to talk!"
+        content="Hi, Welcome to LoanAssist. How can I help you?. Press `P` to talk!"
     ).send()
     system_prompt = system_prompt.replace("<customer_language>", settings["Language"])
     await setup_openai_realtime(system_prompt=system_prompt + "\n\n Customer ID: 12121")
