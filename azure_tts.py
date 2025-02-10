@@ -1,12 +1,33 @@
 # Copyright (c) Microsoft. All rights reserved.
 # Licensed under the MIT license. See LICENSE.md file in the project root for full license information.
+'''
+This script is designed for Text-to-Speech (TTS) synthesis using Azure Cognitive Services Speech SD
 
-import asyncio
+What This Code Does:
+1. Loads Environment Variables:
+    Uses dotenv to load AZURE_SPEECH_KEY and AZURE_SPEECH_REGION.
+
+2. Handles Audio Streaming:
+    AioStream class manages an asynchronous audio data queue.
+    calculate_energy() function detects silence in the audio.
+
+3. Azure Speech Synthesis Setup:
+    The Client class initializes Azure Speech SDK and configures the TTS system.
+    It creates multiple instances of SpeechSynthesizer for parallel processing.
+
+4. Text-to-Speech (TTS) Processing:
+    The text_to_speech() function takes input text and converts it to speech.
+    Uses SSML (Speech Synthesis Markup Language) for fine-tuned speech synthesis.
+    Processes silence removal and energy detection for better output.
+    The generated speech is written to a WAV file (output.wav).
+
+'''
+import asyncio # for asynchronous processing
 import logging
 import os
 from typing import AsyncIterator, Tuple
 import traceback
-import azure.cognitiveservices.speech as speechsdk
+import azure.cognitiveservices.speech as speechsdk # Text-to-Speech
 import numpy as np
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from dotenv import load_dotenv
@@ -14,6 +35,11 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 def calculate_energy(frame_data):
+    '''
+    Converts audio byte data to a NumPy array (assumes 16-bit PCM format).
+    Computes audio energy (sum of squared amplitudes).
+    Used to detect silence in speech synthesis.
+    '''
     # Convert the byte data to a numpy array for easier processing (assuming 16-bit PCM)
     data = np.frombuffer(frame_data, dtype=np.int16)
     # Calculate the energy as the sum of squares of the samples
@@ -21,6 +47,14 @@ def calculate_energy(frame_data):
     return energy
 
 class AioStream:
+    '''
+    Handles real-time audio streaming asynchronously.
+    Implements an async iterator (__aiter__ and __anext__).
+    Stores audio chunks in an async queue (_queue).
+    write_data(data): Adds audio data to the queue.
+    end_of_stream(): Signals end-of-stream.
+    read(): Reads from the queue asynchronously.
+'''
     def __init__(self):
         self._queue = asyncio.Queue()
 
@@ -43,6 +77,10 @@ class AioStream:
         return await self.read()
 
 class Client:
+    '''
+    Manages speech synthesis using Azure Cognitive Services.
+    synthesis_pool_size: Defines the number of concurrent speech synthesis requests.
+    '''
     def __init__(self, synthesis_pool_size: int = 2):
         if synthesis_pool_size < 1:
             raise ValueError("synthesis_pool_size must be at least 1")
@@ -51,8 +89,15 @@ class Client:
         self.voice = None
 
     def configure(self, voice: str):
+
+        '''
+        Configures the Azure Speech Service for a specific voice.
+        Sets the Azure Speech API endpoint and authentication using environment variables.
+        Defines the audio format (16kHz 16-bit Mono PCM).
+        '''
+
         logger.info(f"Configuring voice: {voice}")
-        self.voice = "hi-IN-AnanyaNeural"
+        self.voice = voice
 
         self.speech_config = speechsdk.SpeechConfig(
             endpoint=f"wss://{os.environ['AZURE_SPEECH_REGION']}.tts.speech.microsoft.com/cognitiveservices/websocket/v2",
@@ -67,12 +112,23 @@ class Client:
             s.synthesis_canceled.connect(lambda evt: logger.error(f"Synthesis canceled: {evt.result.reason}"))
 
     def text_to_speech(self, voice: str, speed: str = "medium") -> Tuple[speechsdk.SpeechSynthesisRequest.InputStream, AioStream]:
+        '''
+        Converts text into speech audio stream.
+        Uses asynchronous processing for real-time synthesis.
+        Returns an audio stream that can be played in real time.
+        '''
+        
         # input_stream = sp
         logger.info(f"Synthesizing text with voice: {voice}")
         self.configure(voice)
         synthesis_request = speechsdk.SpeechSynthesisRequest(
             input_type=speechsdk.SpeechSynthesisRequestInputType.TextStream)
         # synthesis_request.rate = speed
+
+        '''Manages multiple synthesizers for concurrent requests.
+        Starts speech synthesis asynchronously (start_speaking()).
+        Creates an audio data stream (AudioDataStream(result)) for real-time playback.'''
+
         self._counter = (self._counter + 1) % len(self.speech_synthesizers)
         current_synthesizer = self.speech_synthesizers[self._counter]
 
@@ -95,7 +151,8 @@ class Client:
                             logger.error(f"Speech synthesis failed: {stream.status}, details: {stream.cancellation_details.error_details}")
                         break
                     energy = await loop.run_in_executor(None, calculate_energy, frame_data)
-                    if energy < 500:
+                    
+                    if energy < 500: # Skips leading silence to improve response speed.
                         logger.info("Silence detected, skipping")
                         continue
                     leading_silence_skipped = True
@@ -115,10 +172,17 @@ class Client:
     
     
     async def text_to_speech_realtime_old(self, text: str, voice: str, speed: str = "medium"):
+
+        '''Processes text-to-speech in real-time using Azure Cognitive Services.'''
         self._counter = (self._counter + 1) % len(self.speech_synthesizers)
         current_synthesizer = self.speech_synthesizers[self._counter]
         current_synthesizer.properties.set_property(speechsdk.PropertyId.SpeechServiceConnection_SynthVoice, voice)
-        ssml = f"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='hi-IN'><voice name='{voice}'><prosody rate='{speed}'>{text}</prosody></voice></speak>"
+        
+        # Generates SSML (Speech Synthesis Markup Language)
+        # ssml = f"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='hi-IN'><voice name='{voice}'><prosody rate='{speed}'>{text}</prosody></voice></speak>"
+        lang = voice.split('-')[0] + '-' + voice.split('-')[1]  # Extract "hi-IN" or "en-US"
+        ssml = f'<speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xmlns:emo="http://www.w3.org/2009/10/emotionml" version="1.0" xml:lang="{lang}"><voice name="{voice}">{text}</voice></speak>'
+
         print(ssml)
         result = current_synthesizer.start_speaking_ssml(ssml)
         stream = speechsdk.AudioDataStream(result)
@@ -148,6 +212,8 @@ class Client:
         
     @classmethod
     async def text_to_speech_realtime(self, text: str, voice: str, speed: str = "medium"):
+        
+        '''Processes text-to-speech in real-time using Azure Cognitive Services.'''
         # Azure Speech Service Configuration
         speech_config = speechsdk.SpeechConfig(subscription=os.environ['AZURE_SPEECH_KEY'], region=os.environ['AZURE_SPEECH_REGION'])
         speech_config.speech_synthesis_voice_name = voice
@@ -156,6 +222,8 @@ class Client:
         # Synthesize speech
         ssml = f'<speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xmlns:emo="http://www.w3.org/2009/10/emotionml" version="1.0" xml:lang="hi-IN"><voice name="{voice}">{text}</voice></speak>'
         #result = speech_synthesizer.speak_text_async(text).get()
+
+        # Converts the generated speech into audio data (result.audio_data).
         result = speech_synthesizer.speak_ssml_async(ssml).get()
         if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
             print("Speech synthesized successfully.")

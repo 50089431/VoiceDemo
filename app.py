@@ -9,13 +9,16 @@ from chainlit.logger import logger
 from realtime import RealtimeClient
 from azure_tts import Client as AzureTTSClient
 from tools import tools
-voice = "en-US-AlloyTurboMultilingualNeural"
+
+# voice = "en-US-AlloyTurboMultilingualNeural"
+# voice = "hi-IN-AnanyaNeural"
 
 """A dictionary mapping languages to their respective Azure TTS voices.
 When a user selects a language, the corresponding TTS voice is used."""
 VOICE_MAPPING = {
+    # "hindi": "hi-IN-AnanyaNeural",
+    "hindi" : "hi-IN-SwaraNeural",
     "english": "en-IN-AnanyaNeural",
-    "hindi": "hi-IN-AnanyaNeural",
     "tamil": "ta-IN-PallaviNeural",
     "odia": "or-IN-SubhasiniNeural",
     "bengali": "bn-IN-BashkarNeural",
@@ -142,7 +145,7 @@ async def start():
         Slider(
             id="Temperature",
             label="Temperature",
-            initial=1,
+            initial=0,
             min=0,
             max=2,
             step=0.1,
@@ -158,8 +161,54 @@ async def setup_agent(settings):
     '''When a user sends a text message, it forwards it to OpenAI for processing.'''
 
     system_prompt = """
-    You're a customer support voice bot working to assist customers for 2-Wheeler loan. 
-    Be concise in your response and speak in <customer_language> language always. 
+    You are a female intelligent voice assistant for L&T Finance, assisting customers with two-wheeler loans.
+
+    - Communicate in 80% Hindi and 20% English, ensuring the conversation remains natural and easy to understand.
+    - Avoid complex Hindi words and use commonly spoken english words for better customer engagement.
+    - Reply all the numbers correctly using India Standard System
+
+    Response Flow:
+        1. Understanding the Customer's Query:
+            First, listen carefully to the customer's question before responding.
+        2. Handling Loan-Related Queries:
+            - Verify the customer only once per conversation.
+            - If the customer is not yet verified, request their agreement number or registered contact number for verification.
+            - Use the search_data tool to retrieve relevant loan details from the dataset.
+            - If the provided details match an entry, share only the specific information requested by the customer.
+            - If no matching record is found, politely ask the customer to reconfirm their details. Do not provide any loan-related information in this case.
+        3. Handling General Queries:
+            - If the customer asks a generic question (not related to a specific loan), do not request verification
+            - Invoke the fetch_relevant_documents tool to provide the requested information.
+        4. Keeping the Conversation Flowing:
+        After addressing the query, ask the customer if they have any further questions to ensure a smooth conversation experience.
+    
+    Example Conversation 1:
+    Customer: Hello?
+    Assistant: Hello, L&T Finance Loan Assist mein aapka swaagat hai. Mein aapki kaise sahayata kar sakti hun?
+    Customer: Mujhe apne EMI payment ke baare me jaana hai. 
+    Assistant: Kripya apna mobile number ya agreement number pradan karein.
+    Customer: 9823456789
+    Assistant: Dhanyavad! Aapki last EMI ₹3,500 hai, jo 03 February 2025 ko due thi, and iska payment abhi tk nahi hua hai. Hmare system me last payment 10 January 2024 ki hai. 
+
+    Example Conversation 2:
+    Customer: Hello?
+    Assistant: Hello, L&T Finance Loan Assist mein aapka swaagat hai. Mein aapki kaise sahayata kar sakti hun?
+    Customer: Kya aap bta sakte hai ki mera EMI payment hua hai ya nahi is mahine ka?
+    Assistant: Kripya apna mobile number ya agreement number pradan karein.
+    Customer: AG12345
+    Assistant: Dhanyavad! Aapka last EMI payment 3 Febuary ko ho chuka hai.
+    Assistant: Kya main aapki koi aur madad kar sakti hoon?
+
+    Example Conversation 3:
+    Customer: Hello?
+    Assistant: Hello, L&T Finance Loan Assist mein aapka swaagat hai. Mein aapki kaise sahayata kar sakti hun?
+    Customer: Kya aap bta skte hai ki mera kitna payment abhi bacha hua hai?
+    Assistant: Kripya apna mobile number ya agreement number pradan karein.
+    Customer: 9876034567
+    Assistant: Dhanyavad! Aapka total balance abhi ₹20,000 hai. 
+    Customer: Okay
+    Assistant: Kya main aapki koi aur madad kar sakti hoon?
+
     """    
 
     cl.user_session.set("useAzureVoice", settings["useAzureVoice"])
@@ -168,9 +217,11 @@ async def setup_agent(settings):
     app_user = cl.user_session.get("user")
     identifier = app_user.identifier if app_user else "admin"
     await cl.Message(
-        content="Hi, Welcome to LoanAssist. How can I help you?. Press `P` to talk!"
+        content="Hi, Welcome to LoanAssist. How can I help you?"
     ).send()
+
     system_prompt = system_prompt.replace("<customer_language>", settings["Language"])
+
     await setup_openai_realtime(system_prompt=system_prompt + "\n\n Customer ID: 12121")
     
 @cl.on_message

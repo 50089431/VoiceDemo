@@ -516,13 +516,16 @@ class RealtimeClient(RealtimeEventHandler):
             await self._call_tool(item["formatted"]["tool"])
 
     async def _call_tool(self, tool):
+        print(tool)
         try:
-            print(tool["arguments"])
+            # print(tool["arguments"])
             json_arguments = json.loads(tool["arguments"])
             tool_config = self.tools.get(tool["name"])
+            # print(tool_config)
             if not tool_config:
                 raise Exception(f'Tool "{tool["name"]}" has not been added')
             result = await tool_config["handler"](**json_arguments)
+            print(result)
             await self.realtime.send("conversation.item.create", {
                 "item": {
                     "type": "function_call_output",
