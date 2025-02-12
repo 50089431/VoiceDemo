@@ -9,7 +9,7 @@ from chainlit.logger import logger
 from realtime import RealtimeClient
 from azure_tts import Client as AzureTTSClient
 from tools import tools
-
+import re
 
 """A dictionary mapping languages to their respective Azure TTS voices.
 When a user selects a language, the corresponding TTS voice is used."""
@@ -198,7 +198,7 @@ async def setup_agent(settings):
         1. Wait for the customer's question
             Listen carefully to the customer's question before responding. 
         2. If the question is related to Loan-Related Queries:
-            - Verify the customer only once per conversation.
+            - Verify the customer only once per loan.
             - If the customer is not yet verified, request their agreement number or registered contact number for verification.
             - User will speak a **phone number**. Listen carefully to the number, make sure the number is 10 digits. Listen to the first and last digits properly. 
             - Say - Mein aapka number **phone number (in english digits)** search kr rhi hun.
@@ -219,7 +219,7 @@ async def setup_agent(settings):
     Assistant: Kripya apna mobile number ya agreement number pradan karein.
     Customer: 9823456789
     Assistant: Dhanyavad! Mein aapka number nine eight two three four five six seven eight nine search kr rhi hun.
-    Assistant: Aapki last EMI Rs. two thousand eight hundred hai, jo 03 February 2025 ko due thi, and iska payment abhi tk nahi hua hai.
+    Assistant: Aapki last EMI Rupees two thousand eight hundred hai, jo 03 February 2025 ko due thi, and iska payment abhi tk nahi hua hai.
 
     Example Conversation 2:
     Customer: Hello?
@@ -238,7 +238,7 @@ async def setup_agent(settings):
     Assistant: Kripya apna mobile number ya agreement number pradan karein.
     Customer: 9876034567
     Assistant: Dhanyavad! Mein aapka number nine eight seven six zero three four five six seven search kr rhi hun.
-    Assistant: Aapka total balance abhi Rs twenty thousand hai. 
+    Assistant: Aapka total balance abhi Rupees twenty thousand hai. 
     Customer: Okay
     Assistant: Kya main aapki koi aur sahayta kar sakti hoon?
     """    
