@@ -33,6 +33,7 @@ from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
+import re
 
 def calculate_energy(frame_data):
     '''
@@ -171,57 +172,85 @@ class Client:
         return synthesis_request.input_stream, aio_stream
     
     
-    async def text_to_speech_realtime_old(self, text: str, voice: str, speed: str = "medium"):
+    # async def text_to_speech_realtime_old(self, text: str, voice: str, speed: str = "medium"):
 
-        '''Processes text-to-speech in real-time using Azure Cognitive Services.'''
-        self._counter = (self._counter + 1) % len(self.speech_synthesizers)
-        current_synthesizer = self.speech_synthesizers[self._counter]
-        current_synthesizer.properties.set_property(speechsdk.PropertyId.SpeechServiceConnection_SynthVoice, voice)
-        
-        # Generates SSML (Speech Synthesis Markup Language)
-        # ssml = f"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='hi-IN'><voice name='{voice}'><prosody rate='{speed}'>{text}</prosody></voice></speak>"
-        lang = voice.split('-')[0] + '-' + voice.split('-')[1]  # Extract "hi-IN" or "en-US"
-        ssml = f'<speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xmlns:emo="http://www.w3.org/2009/10/emotionml" version="1.0" xml:lang="{lang}"><voice name="{voice}">{text}</voice></speak>'
+    #     '''Processes text-to-speech in real-time using Azure Cognitive Services.'''
+    #     self._counter = (self._counter + 1) % len(self.speech_synthesizers)
+    #     current_synthesizer = self.speech_synthesizers[self._counter]
+    #     current_synthesizer.properties.set_property(speechsdk.PropertyId.SpeechServiceConnection_SynthVoice, voice)
+   
+    #     # Generates SSML (Speech Synthesis Markup Language)
+    #     # ssml = f"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='hi-IN'><voice name='{voice}'><prosody rate='{speed}'>{text}</prosody></voice></speak>"
+    #     lang = voice.split('-')[0] + '-' + voice.split('-')[1]  # Extract "hi-IN" or "en-US"
+    #     ssml = f'<speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xmlns:emo="http://www.w3.org/2009/10/emotionml" version="1.0" xml:lang="{lang}"><voice name="{voice}">{text}</voice></speak>'
 
-        print(ssml)
-        result = current_synthesizer.start_speaking_ssml(ssml)
-        stream = speechsdk.AudioDataStream(result)
-        first = True
-        leading_silence_skipped = False
-        silence_detection_frames_size = int(50 * 16000 * 2 / 1000)  # 50 ms
-        while True:
-            if not leading_silence_skipped:
-                if stream.position >= 3 * silence_detection_frames_size:
-                    leading_silence_skipped = True
-                    continue
-                frame_data = bytes(silence_detection_frames_size)
-                _ = stream.read_data(frame_data)
-                energy = calculate_energy(frame_data)
-                if energy < 500:
-                    continue
-                leading_silence_skipped = True
-                stream.position = stream.position - silence_detection_frames_size
-            chunk = bytes(1600*2)  # 200 ms duration
-            read = stream.read_data(chunk)
-            if read == 0:
-                break
-            yield chunk[:read]
-        if stream.status != speechsdk.StreamStatus.AllData:
-            logging.error(f"Speech synthesis failed: {stream.status}, details: {stream.cancellation_details.error_details}")
-            return  
+    #     print(ssml)
+    #     result = current_synthesizer.start_speaking_ssml(ssml)
+    #     stream = speechsdk.AudioDataStream(result)
+    #     first = True
+    #     leading_silence_skipped = False
+    #     silence_detection_frames_size = int(50 * 16000 * 2 / 1000)  # 50 ms
+    #     while True:
+    #         if not leading_silence_skipped:
+    #             if stream.position >= 3 * silence_detection_frames_size:
+    #                 leading_silence_skipped = True
+    #                 continue
+    #             frame_data = bytes(silence_detection_frames_size)
+    #             _ = stream.read_data(frame_data)
+    #             energy = calculate_energy(frame_data)
+    #             if energy < 500:
+    #                 continue
+    #             leading_silence_skipped = True
+    #             stream.position = stream.position - silence_detection_frames_size
+    #         chunk = bytes(1600*2)  # 200 ms duration
+    #         read = stream.read_data(chunk)
+    #         if read == 0:
+    #             break
+    #         yield chunk[:read]
+    #     if stream.status != speechsdk.StreamStatus.AllData:
+    #         logging.error(f"Speech synthesis failed: {stream.status}, details: {stream.cancellation_details.error_details}")
+    #         return  
         
     @classmethod
     async def text_to_speech_realtime(self, text: str, voice: str, speed: str = "medium"):
         
         '''Processes text-to-speech in real-time using Azure Cognitive Services.'''
         # Azure Speech Service Configuration
+        text = re.sub(r'\d+', lambda x: ' '.join(x.group()), text)
+
         speech_config = speechsdk.SpeechConfig(subscription=os.environ['AZURE_SPEECH_KEY'], region=os.environ['AZURE_SPEECH_REGION'])
         speech_config.speech_synthesis_voice_name = voice
         speech_config.set_speech_synthesis_output_format(speechsdk.SpeechSynthesisOutputFormat.Raw24Khz16BitMonoPcm)
         speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
+        
         # Synthesize speech
-        ssml = f'<speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xmlns:emo="http://www.w3.org/2009/10/emotionml" version="1.0" xml:lang="hi-IN"><voice name="{voice}">{text}</voice></speak>'
-        #result = speech_synthesizer.speak_text_async(text).get()
+        # ssml = f'<speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xmlns:emo="http://www.w3.org/2009/10/emotionml" version="1.0" xml:lang="hi-IN"><voice name="{voice}">{text}</voice></speak>'
+        
+        # ssml = f'<speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xmlns:emo="http://www.w3.org/2009/10/emotionml" version="1.0" xml:lang="hi-IN"><voice name="{voice}"><mstts:express-as type="digits">{text}</mstts:express-as></voice></speak>'
+        
+        def convert_to_ssml(text, voice="hi-IN-KavyaNeural"):
+            # Function to wrap detected numbers in <say-as interpret-as="digits">
+            def wrap_digits(match):
+                return f'<say-as interpret-as="digits">{match.group().strip()}</say-as>'
+            
+            # Replace all numbers in text while keeping normal text unchanged
+            processed_text = re.sub(r'\d+', wrap_digits, text)
+            print(f'In text_to_speech_realtime - {processed_text}')
+            # Final SSML output
+            ssml = f'''
+            <speak xmlns="http://www.w3.org/2001/10/synthesis"
+                xmlns:mstts="http://www.w3.org/2001/mstts"
+                version="1.0" xml:lang="hi-IN">
+                <voice name="{voice}">
+                    {processed_text}
+                </voice>
+            </speak>
+            '''
+            
+            return ssml
+
+        ssml = convert_to_ssml(text)
+        print(f'In text_to_speech_realtime ssml - {ssml}')
 
         # Converts the generated speech into audio data (result.audio_data).
         result = speech_synthesizer.speak_ssml_async(ssml).get()
@@ -231,14 +260,13 @@ class Client:
             return audio_data
         else:
             print("Failed to synthesize speech:", result.reason)
-        
 
 if __name__ == "__main__":
     async def main():
         logging.basicConfig(level=logging.INFO)
         client = Client()
         print("client", client)
-        input, output = client.text_to_speech("en-US-Andrew:DragonHDLatestNeural")
+        input, output = client.text_to_speech("hi-IN-KavyaNeural")
 
         async def read_output():
             audio = b''
@@ -260,11 +288,25 @@ if __name__ == "__main__":
                 f.write(b'data')
                 f.write((len(audio)).to_bytes(4, 'little'))
                 f.write(audio)
+
         async def put_input():
-            for c in ['Hello,', ' world!', 'My', 'name','is', 'Manoranjan','How Can i help you today', '。']:
-                input.write(c)
+            text_list = [
+                "Hello,",
+                "world!",
+                "आपकी अगली EMI 3500 रूपये है।",  # Example with numbers
+                "My name is Manoranjan",
+                "आपका बकाया 25000 रूपये है।",  # Another example
+                "How can I help you today?"
+            ]
+
+            for text in text_list:
+                input.write(text)  # Send processed text to TTS
+                await asyncio.sleep(0.2)  # Small delay to ensure full processing
+            
+            await asyncio.sleep(0.4)  # Extra delay before closing (if needed)
             input.close()
-                # await asyncio.sleep(1)
+        
+        
         await asyncio.gather(read_output(), put_input())
         # add header to the wave file
 

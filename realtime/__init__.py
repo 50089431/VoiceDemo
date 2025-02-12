@@ -421,7 +421,7 @@ class RealtimeConversation:
 
 
 class RealtimeClient(RealtimeEventHandler):
-    def __init__(self, system_prompt: str, temperature = 0.8):
+    def __init__(self, system_prompt: str, temperature = 0.6):
         super().__init__()
         self.system_prompt = system_prompt
         self.default_session_config = {
@@ -442,8 +442,9 @@ class RealtimeClient(RealtimeEventHandler):
         self.default_server_vad_config = {
             "type": "server_vad",
             "threshold": 0.5,
-            "prefix_padding_ms": 300,
-            "silence_duration_ms": 200,
+            "prefix_padding_ms": 200,
+            "silence_duration_ms": 300,
+            "speech_pad_ms" : 100
         }
         self.realtime = RealtimeAPI()
         self.conversation = RealtimeConversation()
