@@ -32,7 +32,7 @@ import numpy as np
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from dotenv import load_dotenv
 load_dotenv()
-logger = logging.getLogger(__name__)
+from logger import logger  # Import the logger
 import re
 
 def calculate_energy(frame_data):
@@ -118,25 +118,20 @@ class Client:
         Uses asynchronous processing for real-time synthesis.
         Returns an audio stream that can be played in real time.
         '''
-        
-        # input_stream = sp
-        logger.info(f"Synthesizing text with voice: {voice}")
+        logger.info(f"Entering text_to_speech with voice: {voice} and speed: {speed}")
         self.configure(voice)
         synthesis_request = speechsdk.SpeechSynthesisRequest(
             input_type=speechsdk.SpeechSynthesisRequestInputType.TextStream)
-        # synthesis_request.rate = speed
-
-        '''Manages multiple synthesizers for concurrent requests.
-        Starts speech synthesis asynchronously (start_speaking()).
-        Creates an audio data stream (AudioDataStream(result)) for real-time playback.'''
-
         self._counter = (self._counter + 1) % len(self.speech_synthesizers)
         current_synthesizer = self.speech_synthesizers[self._counter]
 
         result = current_synthesizer.start_speaking(synthesis_request)
         stream = speechsdk.AudioDataStream(result)
         aio_stream = AioStream()
+        logger.info("Configured synthesizer and started speaking")
+
         async def read_from_data_stream():
+            logger.info("Entering read_from_data_stream")
             leading_silence_skipped = False
             silence_detection_frames_size = int(50 * 16000 * 2 / 1000)  # 50 ms
             loop = asyncio.get_running_loop()
@@ -162,7 +157,7 @@ class Client:
                 read = await loop.run_in_executor(None, stream.read_data, chunk)
                 if read == 0:
                     break
-                print("chunk", len(chunk))
+                logger.info(f"Read audio chunk of size {len(chunk)}")
                 aio_stream.write_data(chunk[:read])
             if stream.status != speechsdk.StreamStatus.AllData:
                 logger.error(f"Speech synthesis failed: {stream.status}, details: {stream.cancellation_details.error_details}")
@@ -170,46 +165,6 @@ class Client:
 
         asyncio.create_task(read_from_data_stream())
         return synthesis_request.input_stream, aio_stream
-    
-    
-    # async def text_to_speech_realtime_old(self, text: str, voice: str, speed: str = "medium"):
-
-    #     '''Processes text-to-speech in real-time using Azure Cognitive Services.'''
-    #     self._counter = (self._counter + 1) % len(self.speech_synthesizers)
-    #     current_synthesizer = self.speech_synthesizers[self._counter]
-    #     current_synthesizer.properties.set_property(speechsdk.PropertyId.SpeechServiceConnection_SynthVoice, voice)
-   
-    #     # Generates SSML (Speech Synthesis Markup Language)
-    #     # ssml = f"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='hi-IN'><voice name='{voice}'><prosody rate='{speed}'>{text}</prosody></voice></speak>"
-    #     lang = voice.split('-')[0] + '-' + voice.split('-')[1]  # Extract "hi-IN" or "en-US"
-    #     ssml = f'<speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xmlns:emo="http://www.w3.org/2009/10/emotionml" version="1.0" xml:lang="{lang}"><voice name="{voice}">{text}</voice></speak>'
-
-    #     print(ssml)
-    #     result = current_synthesizer.start_speaking_ssml(ssml)
-    #     stream = speechsdk.AudioDataStream(result)
-    #     first = True
-    #     leading_silence_skipped = False
-    #     silence_detection_frames_size = int(50 * 16000 * 2 / 1000)  # 50 ms
-    #     while True:
-    #         if not leading_silence_skipped:
-    #             if stream.position >= 3 * silence_detection_frames_size:
-    #                 leading_silence_skipped = True
-    #                 continue
-    #             frame_data = bytes(silence_detection_frames_size)
-    #             _ = stream.read_data(frame_data)
-    #             energy = calculate_energy(frame_data)
-    #             if energy < 500:
-    #                 continue
-    #             leading_silence_skipped = True
-    #             stream.position = stream.position - silence_detection_frames_size
-    #         chunk = bytes(1600*2)  # 200 ms duration
-    #         read = stream.read_data(chunk)
-    #         if read == 0:
-    #             break
-    #         yield chunk[:read]
-    #     if stream.status != speechsdk.StreamStatus.AllData:
-    #         logging.error(f"Speech synthesis failed: {stream.status}, details: {stream.cancellation_details.error_details}")
-    #         return  
         
     @classmethod
     async def text_to_speech_realtime(self, text: str, voice: str, speed: str = "medium"):
@@ -217,6 +172,8 @@ class Client:
         '''Processes text-to-speech in real-time using Azure Cognitive Services.'''
         # Azure Speech Service Configuration
         text = re.sub(r'\d+', lambda x: ' '.join(x.group()), text)
+        
+        logger.info("In text_to_speech_realtime - %s" % text)
 
         speech_config = speechsdk.SpeechConfig(subscription=os.environ['AZURE_SPEECH_KEY'], region=os.environ['AZURE_SPEECH_REGION'])
         speech_config.speech_synthesis_voice_name = voice
@@ -228,7 +185,7 @@ class Client:
         
         # ssml = f'<speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xmlns:emo="http://www.w3.org/2009/10/emotionml" version="1.0" xml:lang="hi-IN"><voice name="{voice}"><mstts:express-as type="digits">{text}</mstts:express-as></voice></speak>'
         
-        def convert_to_ssml(text, voice="hi-IN-KavyaNeural"):
+        def convert_to_ssml(text, voice):
             # Function to wrap detected numbers in <say-as interpret-as="digits">
             def wrap_digits(match):
                 return f'<say-as interpret-as="digits">{match.group().strip()}</say-as>'
@@ -240,7 +197,7 @@ class Client:
             ssml = f'''
             <speak xmlns="http://www.w3.org/2001/10/synthesis"
                 xmlns:mstts="http://www.w3.org/2001/mstts"
-                version="1.0" xml:lang="hi-IN">
+                version="1.0" xml:lang="{voice.split('-')[0]}-{voice.split('-')[1]}">
                 <voice name="{voice}">
                     {processed_text}
                 </voice>
@@ -249,7 +206,7 @@ class Client:
             
             return ssml
 
-        ssml = convert_to_ssml(text)
+        ssml = convert_to_ssml(text, voice)
         print(f'In text_to_speech_realtime ssml - {ssml}')
 
         # Converts the generated speech into audio data (result.audio_data).
@@ -263,15 +220,19 @@ class Client:
 
 if __name__ == "__main__":
     async def main():
-        logging.basicConfig(level=logging.INFO)
+        logger.info("Starting the TTS client")
         client = Client()
-        print("client", client)
-        input, output = client.text_to_speech("hi-IN-KavyaNeural")
+        logger.info("Client initialized")
+        
+        voice = "hi-IN-KavyaNeural"  # Replace this with the desired voice
+        
+        
+        input, output = client.text_to_speech(voice)
 
         async def read_output():
             audio = b''
             async for chunk in output:
-                print(len(chunk))
+                logger.info(f"Received audio chunk of size {len(chunk)}")
                 audio += chunk
             with open("output.wav", "wb") as f:
                 f.write(b'RIFF')
@@ -306,8 +267,7 @@ if __name__ == "__main__":
             await asyncio.sleep(0.4)  # Extra delay before closing (if needed)
             input.close()
         
-        
         await asyncio.gather(read_output(), put_input())
-        # add header to the wave file
+        logger.info("TTS client finished")
 
     asyncio.run(main())

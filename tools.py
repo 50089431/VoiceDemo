@@ -10,6 +10,7 @@ from openai import AzureOpenAI
 import os
 from datetime import datetime
 import csv
+from logger import log_query_search, log_tool_search  # Import the logger functions
 
 
 rag_search_client = SearchClient(
@@ -33,6 +34,7 @@ fetch_relevant_documents_def = {
 }
 
 async def fetch_relevant_documents_handler(query: str):
+    log_query_search(query)  # Log the query search
     search_results = rag_search_client.search(
         search_text=query,
         top=5,
@@ -125,6 +127,7 @@ search_data_def = {
 }
     
 async def search_data_handler(query: str):
+    log_tool_search("search_data_in_csv", query)  # Log the tool search
     """
     Searches for a record in the CSV file based on the provided key and value.
     :param file_path: Path to the CSV file.

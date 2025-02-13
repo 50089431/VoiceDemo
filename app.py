@@ -5,16 +5,19 @@ from openai import AsyncAzureOpenAI
 import chainlit as cl
 from chainlit.input_widget import Select, Switch, Slider
 from uuid import uuid4
-from chainlit.logger import logger
 from realtime import RealtimeClient
 from azure_tts import Client as AzureTTSClient
 from tools import tools
 import re
+import logging
+import os
+from logger import logger, log_llm_input_output, log_query_search, log_tool_search  # Import the logger functions
+
 
 """A dictionary mapping languages to their respective Azure TTS voices.
 When a user selects a language, the corresponding TTS voice is used."""
 VOICE_MAPPING = {
-    # "hindi": "hi-IN-AnanyaNeural",
+# "hindi": "hi-IN-AnanyaNeural",
     "hindi" : "hi-IN-KavyaNeural",
     "english": "en-IN-AnanyaNeural",
     "tamil": "ta-IN-PallaviNeural",
@@ -29,19 +32,24 @@ VOICE_MAPPING = {
     "urdu": "ur-IN-AsadNeural"
 }
 
-tts_sentence_end = [ ".", "!", "?", ";", "。", "！", "？", "；", "\n", "।"]
+tts_sentence_end = [ ".", "!", "?", ";", "।", "！", "？", "；", "\n", "।"]
 async def setup_openai_realtime(system_prompt: str):
     """Instantiate and configure the OpenAI Realtime Client"""
+    logger.info(f"Entering setup_openai_realtime with system_prompt: {system_prompt}")
     openai_realtime = RealtimeClient(system_prompt = system_prompt) #Creates an OpenAI Realtime Client instance with a system_prompt.
     cl.user_session.set("track_id", str(uuid4())) #Generates a unique track ID for the session.
     voice = VOICE_MAPPING.get(cl.user_session.get("Language")) #Retrieves the voice selection from cl.user_session.
+    cl.user_session.set("voice", voice)  # Store the voice in the session
     collected_messages = []
+    logger.info(f"Configured OpenAI Realtime Client with voice: {voice}")
     
     async def fix_number_recognition(transcript):
         """
         Ensures numbers are fully captured, especially avoiding missing last digits.
         """
+        logger.info(f"Entering fix_number_recognition with transcript: {transcript}")
         # Check if the last part of transcript contains a number and is possibly incomplete
+        
         number_match = re.search(r"(\d[\d\s]*)$", transcript)  # Match trailing numbers
         if number_match:
             last_number = number_match.group(1).strip()
@@ -65,6 +73,7 @@ async def setup_openai_realtime(system_prompt: str):
                 Converts text to speech using Azure TTS.
                 Sends audio output to the user.
         '''
+        # logger.info(f"Entering handle_conversation_updated with event: {event}")
         item = event.get("item")
         delta = event.get("delta")
         
@@ -80,6 +89,8 @@ async def setup_openai_realtime(system_prompt: str):
             if 'transcript' in delta:
                 if cl.user_session.get("useAzureVoice"):
                     chunk_message = delta['transcript']
+                    logger.info(f"Received transcript: {chunk_message}")
+                    log_llm_input_output("Whisper", chunk_message, None)  # Log input to Whisper model
                     
                     if item["status"] == "in_progress":
                         collected_messages.append(chunk_message)  # save the message
@@ -89,19 +100,21 @@ async def setup_openai_realtime(system_prompt: str):
                             collected_messages.clear()
 
                             sent_transcript = await fix_number_recognition(sent_transcript)
-                            print(f"Bot is planning to speak: {sent_transcript}")
+                            logger.info(f"Bot is planning to speak: {sent_transcript}")
                             chunk = await AzureTTSClient.text_to_speech_realtime(text=sent_transcript, voice = voice)
+                            log_llm_input_output("Azure TTS", sent_transcript, chunk)  # Log input and output to Azure TTS
                             await cl.context.emitter.send_audio_chunk(cl.OutputAudioChunk(mimeType="audio/wav", data=chunk, track=cl.user_session.get("track_id")))
                     
             if 'arguments' in delta:
                 arguments = delta['arguments']  # string, function arguments added
-                pass
+                logger.info(f"Received arguments: {arguments}")
     
     async def handle_item_completed(item):
         """Generate the transcript once an item is completed and populate the chat context."""
+        # logger.info(f"Entering handle_item_completed with item: {item}")
         try:
             transcript = item['item']['formatted']['transcript']
-            print(f"DEBUG - in handle_item_completed : {transcript}")
+            logger.info(f"Completed transcript: {transcript}")
             if transcript.strip() != "":
                 await asyncio.sleep(0.2)  # Small delay to ensure last word is captured
                 await cl.Message(content=transcript).send()      
@@ -115,6 +128,7 @@ async def setup_openai_realtime(system_prompt: str):
             Clears collected messages.
             Sends an audio stop signal to cancel playback.
             Used to cancel the client previous audio playback."""
+        logger.info(f"Entering handle_conversation_interrupt with event content: {event.get('content')}")
         cl.user_session.set("track_id", str(uuid4()))
         try:
             collected_messages.clear()
@@ -123,18 +137,18 @@ async def setup_openai_realtime(system_prompt: str):
         await cl.context.emitter.send_audio_interrupt()
         
     async def handle_input_audio_transcription_completed(event):
+        logger.info(f"Entering handle_input_audio_transcription_completed with event content: {event.get('content')}")
         item = event.get("item")
         delta = event.get("delta")
         if 'transcript' in delta:
-            print(f"DEBUG - in handle_input_audio_transcription_completed : {delta['transcript']}")
             transcript = delta['transcript']
+            logger.info(f"Input audio transcription completed: {transcript}")
             if transcript != "":
                 await cl.Message(author="You", type="user_message", content=transcript).send()
         
     async def handle_error(event):
-        logger.error(event)
+        logger.error(f"Error event: {event}")
         
-    
     openai_realtime.on('conversation.updated', handle_conversation_updated)
     openai_realtime.on('conversation.item.completed', handle_item_completed)
     openai_realtime.on('conversation.interrupted', handle_conversation_interrupt)
@@ -145,10 +159,12 @@ async def setup_openai_realtime(system_prompt: str):
     #cl.user_session.set("tts_client", tts_client)
     coros = [openai_realtime.add_tool(tool_def, tool_handler) for tool_def, tool_handler in tools]
     await asyncio.gather(*coros)
+    logger.info("Exiting setup_openai_realtime")
     
 
 @cl.password_auth_callback
 def auth_callback(username: str, password: str):
+    logger.info(f"Entering auth_callback with username: {username}")
     # Fetch the user matching username from your database
     # and compare the hashed password with the value stored in the database
     if (username, password) == ("raj", "pass123"):
@@ -160,6 +176,7 @@ def auth_callback(username: str, password: str):
 
 @cl.on_chat_start
 async def start():
+    logger.info("Entering start")
     '''Asks the user to select a language, toggle Azure Voice, and set AI temperature.'''
     settings = await cl.ChatSettings([
         Select(
@@ -181,10 +198,12 @@ async def start():
 
     #Calls setup_agent(settings) to configure the AI.
     await setup_agent(settings)
+    logger.info("Exiting start")
 
 
 @cl.on_settings_update
 async def setup_agent(settings):
+    logger.info(f"Entering setup_agent with settings: {settings}")
     '''When a user sends a text message, it forwards it to OpenAI for processing.'''
 
     system_prompt = """
@@ -255,17 +274,22 @@ async def setup_agent(settings):
     system_prompt = system_prompt.replace("<customer_language>", settings["Language"])
 
     await setup_openai_realtime(system_prompt=system_prompt)
+    logger.info("Exiting setup_agent")
     
 @cl.on_message
 async def on_message(message: cl.Message):
+    logger.info(f"Entering on_message with message: {message.content}")
     openai_realtime: RealtimeClient = cl.user_session.get("openai_realtime")
     if openai_realtime and openai_realtime.is_connected():
+        log_llm_input_output("GPT-4o", message.content, None)  # Log input to GPT-4o model
         await openai_realtime.send_user_message_content([{ "type": 'input_text', "text": message.content}])
     else:
         await cl.Message(content="Please activate voice mode before sending messages!").send()
+    logger.info("Exiting on_message")
 
 @cl.on_audio_start
 async def on_audio_start():
+    logger.info("Entering on_audio_start")
     try:
         openai_realtime: RealtimeClient = cl.user_session.get("openai_realtime")
         # TODO: might want to recreate items to restore context
@@ -279,17 +303,21 @@ async def on_audio_start():
 
 @cl.on_audio_chunk
 async def on_audio_chunk(chunk: cl.InputAudioChunk):
+    # logger.info(f"Entering on_audio_chunk with chunk of size: {len(chunk.data)}")
     openai_realtime: RealtimeClient = cl.user_session.get("openai_realtime")
     if openai_realtime:            
         if openai_realtime.is_connected():
             await openai_realtime.append_input_audio(chunk.data)
         else:
             logger.info("RealtimeClient is not connected")
+    # logger.info("Exiting on_audio_chunk")
 
 @cl.on_audio_end
 @cl.on_chat_end
 @cl.on_stop
 async def on_end():
+    logger.info("Entering on_end")
     openai_realtime: RealtimeClient = cl.user_session.get("openai_realtime")
     if openai_realtime and openai_realtime.is_connected():
         await openai_realtime.disconnect()
+    logger.info("Exiting on_end")
