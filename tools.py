@@ -12,7 +12,6 @@ from datetime import datetime
 import csv
 from logger import log_query_search, log_tool_search  # Import the logger functions
 
-
 rag_search_client = SearchClient(
     endpoint=os.environ["AZURE_SEARCH_ENDPOINT"],
     index_name=os.environ["POLICY_INDEX_NAME"],
@@ -142,10 +141,10 @@ async def search_data_handler(query: str):
             for row in reader:
                 # print(row)
                 if row['contact_number'] == query:
-                    print(row)
+                    log_tool_search("Found info for contact number", query) 
                     return row
                 if row['agreement_number'] == query:
-                    print(row)
+                    log_tool_search("Found info for agreement_number", query) 
                     return row               
             return f"No record found with {query}"
     except FileNotFoundError:

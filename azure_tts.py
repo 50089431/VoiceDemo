@@ -23,7 +23,6 @@ What This Code Does:
 
 '''
 import asyncio # for asynchronous processing
-import logging
 import os
 from typing import AsyncIterator, Tuple
 import traceback
@@ -34,12 +33,12 @@ from dotenv import load_dotenv
 load_dotenv()
 from logger import logger  # Import the logger
 import re
+import xml.sax.saxutils as saxutils
 
 def calculate_energy(frame_data):
     '''
-    Converts audio byte data to a NumPy array (assumes 16-bit PCM format).
-    Computes audio energy (sum of squared amplitudes).
-    Used to detect silence in speech synthesis.
+    Converts audio byte data to a NumPy array (assumes 16-bit PCM format) 
+    Computes audio energy (sum of squared amplitudes) for silence detection.
     '''
     # Convert the byte data to a numpy array for easier processing (assuming 16-bit PCM)
     data = np.frombuffer(frame_data, dtype=np.int16)
@@ -59,13 +58,16 @@ class AioStream:
     def __init__(self):
         self._queue = asyncio.Queue()
 
-    def write_data(self, data: bytes):
+    def write_data(self, data: bytes): 
+        # Adds audio data to the queue.
         self._queue.put_nowait(data)
 
     def end_of_stream(self):
+        # Signals end-of-stream.
         self._queue.put_nowait(None)
 
     async def read(self) -> bytes:
+        # Reads from the queue asynchronously
         chunk = await self._queue.get()
         if chunk is None:
             raise StopAsyncIteration
@@ -165,7 +167,7 @@ class Client:
 
         asyncio.create_task(read_from_data_stream())
         return synthesis_request.input_stream, aio_stream
-        
+
     @classmethod
     async def text_to_speech_realtime(self, text: str, voice: str, speed: str = "medium"):
         
@@ -173,40 +175,35 @@ class Client:
         # Azure Speech Service Configuration
         text = re.sub(r'\d+', lambda x: ' '.join(x.group()), text)
         
-        logger.info("In text_to_speech_realtime - %s" % text)
+        logger.info(f"In text_to_speech_realtime - {text}")
 
         speech_config = speechsdk.SpeechConfig(subscription=os.environ['AZURE_SPEECH_KEY'], region=os.environ['AZURE_SPEECH_REGION'])
         speech_config.speech_synthesis_voice_name = voice
         speech_config.set_speech_synthesis_output_format(speechsdk.SpeechSynthesisOutputFormat.Raw24Khz16BitMonoPcm)
         speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
-        
-        # Synthesize speech
-        # ssml = f'<speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xmlns:emo="http://www.w3.org/2009/10/emotionml" version="1.0" xml:lang="hi-IN"><voice name="{voice}">{text}</voice></speak>'
-        
-        # ssml = f'<speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xmlns:emo="http://www.w3.org/2009/10/emotionml" version="1.0" xml:lang="hi-IN"><voice name="{voice}"><mstts:express-as type="digits">{text}</mstts:express-as></voice></speak>'
-        
-        def convert_to_ssml(text, voice):
-            # Function to wrap detected numbers in <say-as interpret-as="digits">
-            def wrap_digits(match):
-                return f'<say-as interpret-as="digits">{match.group().strip()}</say-as>'
-            
-            # Replace all numbers in text while keeping normal text unchanged
-            processed_text = re.sub(r'\d+', wrap_digits, text)
-            print(f'In text_to_speech_realtime - {processed_text}')
-            # Final SSML output
-            ssml = f'''
-            <speak xmlns="http://www.w3.org/2001/10/synthesis"
-                xmlns:mstts="http://www.w3.org/2001/mstts"
-                version="1.0" xml:lang="{voice.split('-')[0]}-{voice.split('-')[1]}">
-                <voice name="{voice}">
-                    {processed_text}
-                </voice>
-            </speak>
-            '''
-            
-            return ssml
 
-        ssml = convert_to_ssml(text, voice)
+        def wrap_dates(text):
+            # This regex matches dates in the format "DD MMM YYYY" (e.g., "03 Feb 2025")
+            pattern = r"(\b\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\b)"
+            # Wrap the matched date with the lang tag
+            return re.sub(pattern, r'<lang xml:lang="en-US">\1</lang>', text)
+        
+        wrapped_text = wrap_dates(text)
+        # Construct the final SSML
+        ssml = f'''
+        <speak xmlns="http://www.w3.org/2001/10/synthesis" 
+            xmlns:mstts="http://www.w3.org/2001/mstts" 
+            xmlns:emo="http://www.w3.org/2009/10/emotionml" 
+            version="1.0" xml:lang="hi-IN">
+            <voice name="hi-IN-KavyaNeural">
+                {wrapped_text}
+            </voice>
+        </speak>
+        '''
+
+        # ssml = f'<speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xmlns:emo="http://www.w3.org/2009/10/emotionml" version="1.0" xml:lang="hi-IN"><voice name="{voice}">{text}</voice></speak>'
+
+        # ssml = f'<speak xmlns="http://www.w3.org/2001/10/synthesis" version="1.0" xml:lang="hi-IN"><voice name="hi-IN-KavyaNeural">Aapki next EMI Rupees three thousand five hundred ki hai, jo 03 March 2025 ko due hai.</voice> </speak>'
         print(f'In text_to_speech_realtime ssml - {ssml}')
 
         # Converts the generated speech into audio data (result.audio_data).
@@ -214,60 +211,7 @@ class Client:
         if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
             print("Speech synthesized successfully.")
             audio_data = result.audio_data
+            logger.info(f"Audio data length: {len(audio_data)}")
             return audio_data
         else:
             print("Failed to synthesize speech:", result.reason)
-
-if __name__ == "__main__":
-    async def main():
-        logger.info("Starting the TTS client")
-        client = Client()
-        logger.info("Client initialized")
-        
-        voice = "hi-IN-KavyaNeural"  # Replace this with the desired voice
-        
-        
-        input, output = client.text_to_speech(voice)
-
-        async def read_output():
-            audio = b''
-            async for chunk in output:
-                logger.info(f"Received audio chunk of size {len(chunk)}")
-                audio += chunk
-            with open("output.wav", "wb") as f:
-                f.write(b'RIFF')
-                f.write((36 + len(audio)).to_bytes(4, 'little'))
-                f.write(b'WAVE')
-                f.write(b'fmt ')
-                f.write((16).to_bytes(4, 'little'))
-                f.write((1).to_bytes(2, 'little'))
-                f.write((1).to_bytes(2, 'little'))
-                f.write((24000).to_bytes(4, 'little'))
-                f.write((48000).to_bytes(4, 'little'))
-                f.write((2).to_bytes(2, 'little'))
-                f.write((16).to_bytes(2, 'little'))
-                f.write(b'data')
-                f.write((len(audio)).to_bytes(4, 'little'))
-                f.write(audio)
-
-        async def put_input():
-            text_list = [
-                "Hello,",
-                "world!",
-                "आपकी अगली EMI 3500 रूपये है।",  # Example with numbers
-                "My name is Manoranjan",
-                "आपका बकाया 25000 रूपये है।",  # Another example
-                "How can I help you today?"
-            ]
-
-            for text in text_list:
-                input.write(text)  # Send processed text to TTS
-                await asyncio.sleep(0.2)  # Small delay to ensure full processing
-            
-            await asyncio.sleep(0.4)  # Extra delay before closing (if needed)
-            input.close()
-        
-        await asyncio.gather(read_output(), put_input())
-        logger.info("TTS client finished")
-
-    asyncio.run(main())
