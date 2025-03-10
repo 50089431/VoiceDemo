@@ -16,13 +16,13 @@ file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 
 # Stream handler (console)
-stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.INFO)
-stream_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+# stream_handler = logging.StreamHandler()
+# stream_handler.setLevel(logging.INFO)
+# stream_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 
 # Add handlers to the logger
 logger.addHandler(file_handler)
-logger.addHandler(stream_handler)
+# logger.addHandler(stream_handler)
 
 def log_llm_input_output(model_name, input_data, output_data):
     logger.info(f"Model: {model_name} - Input: {input_data} - Output: {output_data}")

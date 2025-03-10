@@ -69,16 +69,23 @@ def merge_int16_arrays(left, right):
 
 
 class RealtimeEventHandler:
+    """
+    Handles real-time event subscriptions and dispatching.
+    """
+    
     def __init__(self):
         self.event_handlers = defaultdict(list)
 
     def on(self, event_name, handler):
+        # Registers an event handler for a specific event name.
         self.event_handlers[event_name].append(handler)
         
     def clear_event_handlers(self):
+        # Clears all event handlers.
         self.event_handlers = defaultdict(list)
 
     def dispatch(self, event_name, event):
+        # Dispatches an event to all registered handlers for the event name.
         for handler in self.event_handlers[event_name]:
             if inspect.iscoroutinefunction(handler):
                 asyncio.create_task(handler(event))
@@ -86,6 +93,7 @@ class RealtimeEventHandler:
                 handler(event)
 
     async def wait_for_next(self, event_name):
+        # Waits for the next occurrence of the specified event.
         future = asyncio.Future()
 
         def handler(event):
@@ -97,6 +105,8 @@ class RealtimeEventHandler:
 
 
 class RealtimeAPI(RealtimeEventHandler):
+# Handles WebSocket communication with a real-time OpenAI API.
+
     def __init__(self):
         super().__init__()
         self.default_url = 'wss://api.openai.com'
@@ -109,6 +119,7 @@ class RealtimeAPI(RealtimeEventHandler):
         self._token_credential = DefaultAzureCredential() if self.api_key is None else None
         
     def is_connected(self):
+        # Checks if the WebSocket connection is active.
         return self.ws is not None
 
     def log(self, *args):
@@ -116,6 +127,7 @@ class RealtimeAPI(RealtimeEventHandler):
         
         
     async def _get_auth(self):
+        # Retrieves authentication headers based on available credentials.
         if self._token_credential:
             scope = "https://cognitiveservices.azure.com/.default"
             token = self._token_credential.get_token(scope)
@@ -124,14 +136,16 @@ class RealtimeAPI(RealtimeEventHandler):
             return {"api-key": self.api_key}
         
     def get_user_agent(self):
+        # Constructs a user agent string for API requests.
         package_version = version("rtclient")
         python_version = platform.python_version()
         return f"ms-rtclient/{package_version} Python/{python_version}"     
                
     async def connect(self, model='gpt-4o-realtime-preview'):
+        # Establishes a WebSocket connection to the API.
         try:
             if self.is_connected():
-                raise Exception("Already connected")
+                logger.info("Already connected")
             self.request_id = uuid.uuid4()
             self._session = ClientSession(base_url=self.url)
             if self._token_credential:
@@ -145,7 +159,8 @@ class RealtimeAPI(RealtimeEventHandler):
                     "/openai/realtime",
                     headers=headers,
                     params={"api-version": self.api_version, "deployment": self.azure_deployment},
-                )          
+                ) 
+                logger.info("Successfully connected to OpenAI GPT-4o.")
             else:
                 auth_headers = await self._get_auth()
                 headers = {
@@ -159,6 +174,7 @@ class RealtimeAPI(RealtimeEventHandler):
                 )
                 #self.ws = await websockets.connect(f"{self.url}/openai/realtime?api-version={self.api_version}&deployment={self.azure_deployment}&api-key={self.api_key}")
             self.log(f"Connected to {self.url}")
+            logger.info(f"Successfully connected to {self.url}.")
             asyncio.create_task(self._receive_messages())
         except Exception as e:
             logger.error(f"Failed to connect to {self.url}")
@@ -166,6 +182,7 @@ class RealtimeAPI(RealtimeEventHandler):
             raise ConnectionError(f"Failed to connect to {self.url}") from e
 
     async def _receive_messages(self):
+        # Listens for incoming WebSocket messages and dispatches events.
         async for message in self.ws:
             event = json.loads(message.data)
             if event['type'] == "error":
@@ -175,6 +192,7 @@ class RealtimeAPI(RealtimeEventHandler):
             self.dispatch("server.*", event)
 
     async def send(self, event_name, data=None):
+        # Sends an event message over WebSocket.
         if not self.is_connected():
             raise Exception("RealtimeAPI is not connected")
         data = data or {}
@@ -191,15 +209,22 @@ class RealtimeAPI(RealtimeEventHandler):
         await self.ws.send_str(json.dumps(event))
 
     def _generate_id(self, prefix):
+        # Generates a unique ID for an event.
         return f"{prefix}{int(datetime.utcnow().timestamp() * 1000)}"
 
     async def disconnect(self):
+        # Closes the WebSocket connection.
         if self.ws:
             await self.ws.close()
             self.ws = None
             self.log(f"Disconnected from {self.url}")
 
 class RealtimeConversation:
+    '''
+    Handles real-time conversation events, handling messages, transcripts, audio processing,
+    and function calls in a structured manner
+    '''
+
     default_frequency = config.features.audio.sample_rate
     
     EventProcessors = {
@@ -220,9 +245,11 @@ class RealtimeConversation:
     }
     
     def __init__(self):
+        # Initializes the conversation state.
         self.clear()
 
     def clear(self):
+        # Clears (resets) the conversation state.
         self.item_lookup = {}
         self.items = []
         self.response_lookup = {}
@@ -232,21 +259,26 @@ class RealtimeConversation:
         self.queued_input_audio = None
 
     def queue_input_audio(self, input_audio):
+        # Queues input audio for the next message.
         self.queued_input_audio = input_audio
 
     def process_event(self, event, *args):
+        # Processes a conversation event and returns the updated item and delta.
         event_processor = self.EventProcessors.get(event['type'])
         if not event_processor:
             raise Exception(f"Missing conversation event processor for {event['type']}")
         return event_processor(self, event, *args)
 
     def get_item(self, id):
+        # Retrieves an item by ID.  
         return self.item_lookup.get(id)
 
     def get_items(self):
+        # Retrieves all items in the conversation.
         return self.items[:]
 
     def _process_item_created(self, event):
+        # Handles item creation and formatting.
         item = event['item']
         new_item = item.copy()
         if new_item['id'] not in self.item_lookup:
@@ -257,16 +289,24 @@ class RealtimeConversation:
             'text': '',
             'transcript': ''
         }
+        
+        # Attach queued speech data if available
         if new_item['id'] in self.queued_speech_items:
             new_item['formatted']['audio'] = self.queued_speech_items[new_item['id']]['audio']
             del self.queued_speech_items[new_item['id']]
+        
+        # Attach text if available
         if 'content' in new_item:
             text_content = [c for c in new_item['content'] if c['type'] in ['text', 'input_text']]
             for content in text_content:
                 new_item['formatted']['text'] += content['text']
+
+        # Attach queued speech data if available
         if new_item['id'] in self.queued_transcript_items:
             new_item['formatted']['transcript'] = self.queued_transcript_items[new_item['id']]['transcript']
             del self.queued_transcript_items[new_item['id']]
+
+        # Determine item type and status
         if new_item['type'] == 'message':
             if new_item['role'] == 'user':
                 new_item['status'] = 'completed'
@@ -289,6 +329,7 @@ class RealtimeConversation:
         return new_item, None
 
     def _process_item_truncated(self, event):
+        """Handles truncation of an item, updating its transcript and audio."""
         item_id = event['item_id']
         audio_end_ms = event['audio_end_ms']
         item = self.item_lookup.get(item_id)
@@ -300,6 +341,7 @@ class RealtimeConversation:
         return item, None
 
     def _process_item_deleted(self, event):
+        """Handles deletion of an item from the conversation."""
         item_id = event['item_id']
         item = self.item_lookup.get(item_id)
         if not item:
@@ -309,6 +351,7 @@ class RealtimeConversation:
         return item, None
 
     def _process_input_audio_transcription_completed(self, event):
+        # Handles input audio transcription completion, updating the item's transcript.
         item_id = event['item_id']
         content_index = event['content_index']
         transcript = event['transcript']
@@ -322,12 +365,14 @@ class RealtimeConversation:
         return item, {'transcript': transcript}
 
     def _process_speech_started(self, event):
+        # Handles the start of speech, queuing the speech item.
         item_id = event['item_id']
         audio_start_ms = event['audio_start_ms']
         self.queued_speech_items[item_id] = {'audio_start_ms': audio_start_ms}
         return None, None
 
     def _process_speech_stopped(self, event, input_audio_buffer):
+        #  Handles the end of speech, updating the speech item with audio data.
         item_id = event['item_id']
         audio_end_ms = event['audio_end_ms']
         speech = self.queued_speech_items[item_id]
@@ -339,6 +384,7 @@ class RealtimeConversation:
         return None, None
 
     def _process_response_created(self, event):
+        # Handles response creation, adding the response to the conversation.
         response = event['response']
         if response['id'] not in self.response_lookup:
             self.response_lookup[response['id']] = response
@@ -346,6 +392,7 @@ class RealtimeConversation:
         return None, None
 
     def _process_output_item_added(self, event):
+        # Handles output item addition to a response.
         response_id = event['response_id']
         item = event['item']
         response = self.response_lookup.get(response_id)
@@ -355,6 +402,7 @@ class RealtimeConversation:
         return None, None
 
     def _process_output_item_done(self, event):
+        # Handles completion of an output item, updating its status.
         item = event['item']
         if not item:
             raise Exception('response.output_item.done: Missing "item"')
@@ -365,6 +413,7 @@ class RealtimeConversation:
         return found_item, None
 
     def _process_content_part_added(self, event):
+        # Handles addition of content to an item.
         item_id = event['item_id']
         part = event['part']
         item = self.item_lookup.get(item_id)
@@ -374,6 +423,7 @@ class RealtimeConversation:
         return item, None
 
     def _process_audio_transcript_delta(self, event):
+        # Handles delta updates to an item's transcript.
         item_id = event['item_id']
         content_index = event['content_index']
         delta = event['delta']
@@ -385,6 +435,7 @@ class RealtimeConversation:
         return item, {'transcript': delta}
 
     def _process_audio_delta(self, event):
+        # Handles delta updates to an item's audio.
         item_id = event['item_id']
         content_index = event['content_index']
         delta = event['delta']
@@ -399,6 +450,7 @@ class RealtimeConversation:
         return item, {'audio': append_values}
 
     def _process_text_delta(self, event):
+        # Handles delta updates to an item's text content.
         item_id = event['item_id']
         content_index = event['content_index']
         delta = event['delta']
@@ -410,6 +462,7 @@ class RealtimeConversation:
         return item, {'text': delta}
 
     def _process_function_call_arguments_delta(self, event):
+        # Handles delta updates to a function call's arguments.
         item_id = event['item_id']
         delta = event['delta']
         item = self.item_lookup.get(item_id)
@@ -421,24 +474,32 @@ class RealtimeConversation:
 
 
 class RealtimeClient(RealtimeEventHandler):
+    '''
+    Handles real-time communication with the OpenAI API, 
+    managing sessions, tools, and conversation state.
+    '''
     def __init__(self, system_prompt: str, temperature = 0.6):
+        # Initializes the real-time client with a system prompt and default session configuration.
         super().__init__()
         self.system_prompt = system_prompt
+        # Default session configuration for real-time interaction
         self.default_session_config = {
-            "modalities": ["text", "audio"],
-            "instructions": self.system_prompt,
-            "voice": "shimmer",
-            "input_audio_format": "pcm16",
-            "output_audio_format": "pcm16",
-            "input_audio_transcription": { "model": 'whisper-1'},
-            "turn_detection": { "type": 'server_vad' },
-            "tools": [],
-            "tool_choice": "auto",
-            "temperature": temperature,
-            "max_response_output_tokens": 4096,
+            "modalities": ["text", "audio"],  # Supports both text and audio
+            "instructions": self.system_prompt, # System instructions
+            "voice": "shimmer", # Default voice for text-to-speech
+            "input_audio_format": "pcm16", # Audio format for input
+            "output_audio_format": "pcm16", # Audio format for output
+            "input_audio_transcription": {"model": 'whisper-1'}, # Speech-to-Text Transcription model
+            "turn_detection": {"type": 'server_vad'}, # Voice Activity Detection (VAD)
+            "tools": [], # List of tools that can be used in a session
+            "tool_choice": "auto", # Automatic tool selection
+            "temperature": temperature, # Controls randomness of responses
+            "max_response_output_tokens": 4096, # Token limit
         }
-        self.session_config = {}
-        self.transcription_models = [{"model": "whisper-1"}]
+        self.session_config = {} # Stores current session configuration
+        self.transcription_models = [{"model": "whisper-1"}] # Available transcription models
+
+        # Default Voice Activity Detection (VAD) settings
         self.default_server_vad_config = {
             "type": "server_vad",
             "threshold": 0.5,
@@ -446,16 +507,17 @@ class RealtimeClient(RealtimeEventHandler):
             "silence_duration_ms": 300,
             "speech_pad_ms" : 100
         }
-        self.realtime = RealtimeAPI()
-        self.conversation = RealtimeConversation()
-        self._reset_config()
-        self._add_api_event_handlers()
+        self.realtime = RealtimeAPI() # API for real-time interactions
+        self.conversation = RealtimeConversation() # Stores conversation history 
+        self._reset_config()  # Resets session and input configurations
+        self._add_api_event_handlers()  # Sets up event listeners
         
     def _reset_config(self):
-        self.session_created = False
-        self.tools = {}
-        self.session_config = self.default_session_config.copy()
-        self.input_audio_buffer = bytearray()
+        '''Resets session state and input buffers.'''
+        self.session_created = False  # Tracks if session is active
+        self.tools = {}  # Stores available tools
+        self.session_config = self.default_session_config.copy()  # Reset session config
+        self.input_audio_buffer = bytearray()  # Audio buffer for streaming input
         return True
 
     def _add_api_event_handlers(self):
@@ -478,6 +540,7 @@ class RealtimeClient(RealtimeEventHandler):
         self.realtime.on("server.response.output_item.done", self._on_output_item_done)
 
     def _log_event(self, event):
+        # Logs real-time events.
         realtime_event = {
             "time": datetime.utcnow().isoformat(),
             "source": "client" if event["type"].startswith("client.") else "server",
@@ -486,9 +549,11 @@ class RealtimeClient(RealtimeEventHandler):
         self.dispatch("realtime.event", realtime_event)
 
     def _on_session_created(self, event):
+        # Marks session as created.
         self.session_created = True
 
     def _process_event(self, event, *args):
+        # Processes a real-time event and dispatches relevant conversation events.
         item, delta = self.conversation.process_event(event, *args)
         if event["type"] == "conversation.item.input_audio_transcription.completed":
             self.dispatch("conversation.item.input_audio_transcription.completed", {"item": item, "delta": delta})
@@ -497,19 +562,23 @@ class RealtimeClient(RealtimeEventHandler):
         return item, delta
 
     def _on_speech_started(self, event):
+        # Handles the start of speech, dispatching relevant conversation events.
         self._process_event(event)
         self.dispatch("conversation.interrupted", event)
 
     def _on_speech_stopped(self, event):
+        #  Handles the end of speech, dispatching relevant conversation events.
         self._process_event(event, self.input_audio_buffer)
 
     def _on_item_created(self, event):
+        # Handles item creation, dispatching relevant conversation events.
         item, delta = self._process_event(event)
         self.dispatch("conversation.item.appended", {"item": item})
         if item and item["status"] == "completed":
             self.dispatch("conversation.item.completed", {"item": item})
 
     async def _on_output_item_done(self, event):
+        #  Handles completion of an output item, dispatching relevant conversation events.
         item, delta = self._process_event(event)
         if item and item["status"] == "completed":
             self.dispatch("conversation.item.completed", {"item": item})
@@ -517,6 +586,7 @@ class RealtimeClient(RealtimeEventHandler):
             await self._call_tool(item["formatted"]["tool"])
 
     async def _call_tool(self, tool):
+        # Calls a tool with the specified arguments.
         print(tool)
         try:
             # print(tool["arguments"])
@@ -546,9 +616,11 @@ class RealtimeClient(RealtimeEventHandler):
         await self.create_response()
 
     def is_connected(self):
+        # Checks if the real-time client is connected.
         return self.realtime.is_connected()
 
     def reset(self):
+        # Resets the real-time client, disconnecting and clearing state.
         self.disconnect()
         self.realtime.clear_event_handlers()
         self._reset_config()
@@ -556,6 +628,7 @@ class RealtimeClient(RealtimeEventHandler):
         return True
 
     async def connect(self):
+        # Establishes a real-time connection
         if self.is_connected():
             raise Exception("Already connected, use .disconnect() first")
         await self.realtime.connect()
@@ -579,6 +652,7 @@ class RealtimeClient(RealtimeEventHandler):
         return self.session_config.get("turn_detection", {}).get("type")
 
     async def add_tool(self, definition, handler):
+        # Adds a new tool to be used in the session
         if not definition.get("name"):
             raise Exception("Missing tool name in definition")
         name = definition["name"]
@@ -601,6 +675,7 @@ class RealtimeClient(RealtimeEventHandler):
         return True
 
     async def update_session(self, **kwargs):
+        # Updates session configuration with provided parameters
         self.session_config.update(kwargs)
         use_tools = [
             {**tool_definition, "type": "function"}
@@ -620,6 +695,7 @@ class RealtimeClient(RealtimeEventHandler):
         })
 
     async def send_user_message_content(self, content=[]):
+        # Sends a user message with the specified content
         if content:
             for c in content:
                 if c["type"] == "input_audio":
@@ -636,6 +712,7 @@ class RealtimeClient(RealtimeEventHandler):
         return True
 
     async def append_input_audio(self, array_buffer):
+        # Appends audio data to the input buffer
         if len(array_buffer) > 0:
             await self.realtime.send("input_audio_buffer.append", {
                 "audio": array_buffer_to_base64(np.array(array_buffer)),
@@ -644,6 +721,7 @@ class RealtimeClient(RealtimeEventHandler):
         return True
 
     async def create_response(self):
+        #   Creates a response based on the current conversation state
         if self.get_turn_detection_type() is None and len(self.input_audio_buffer) > 0:
             await self.realtime.send("input_audio_buffer.commit")
             self.conversation.queue_input_audio(self.input_audio_buffer)
@@ -652,6 +730,7 @@ class RealtimeClient(RealtimeEventHandler):
         return True
 
     async def cancel_response(self, id=None, sample_count=0):
+        # Cancels the current response or a specific item
         if not id:
             await self.realtime.send("response.cancel")
             return {"item": None}
@@ -681,3 +760,11 @@ class RealtimeClient(RealtimeEventHandler):
     async def wait_for_next_completed_item(self):
         event = await self.wait_for_next("conversation.item.completed")
         return {"item": event["item"]}
+    
+    async def wait_for_next_assistant_item(self):
+        while True:
+            event = await self.wait_for_next("conversation.item.completed")
+            item = event.get("item", {})
+            if item.get("role") == "assistant":
+                return {"item": item}
+    

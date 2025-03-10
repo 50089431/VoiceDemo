@@ -16,23 +16,19 @@ from logger import logger, log_llm_input_output, log_query_search, log_tool_sear
 """A dictionary mapping languages to their respective Azure TTS voices.
 When a user selects a language, the corresponding TTS voice is used."""
 VOICE_MAPPING = {
-    "hindi 1": "hi-IN-AnanyaNeural",
-    "hindi 2" : "hi-IN-KavyaNeural",
-    "hindi 3" : "hi-IN-SwaraNeural",
-    "hindi 4" : "hi-IN-MadhurNeural",
-    "hindi 5" : "hi-IN-RehaanNeural",
-    "hindi 6" : "hi-IN-KunalNeural",
+# "hindi": "hi-IN-AnanyaNeural",
+    "hindi" : "hi-IN-KavyaNeural",
     "english": "en-IN-AnanyaNeural",
-    # "tamil": "ta-IN-PallaviNeural",
-    # "odia": "or-IN-SubhasiniNeural",
-    # "bengali": "bn-IN-BashkarNeural",
-    # "gujarati": "gu-IN-DhwaniNeural",
-    # "kannada": "kn-IN-SapnaNeural",
-    # "malayalam": "ml-IN-MidhunNeural",
-    # "marathi": "mr-IN-AarohiNeural",
-    # "punjabi": "pa-IN-GurpreetNeural",
-    # "telugu": "te-IN-MohanNeural",
-    # "urdu": "ur-IN-AsadNeural"
+    "tamil": "ta-IN-PallaviNeural",
+    "odia": "or-IN-SubhasiniNeural",
+    "bengali": "bn-IN-BashkarNeural",
+    "gujarati": "gu-IN-DhwaniNeural",
+    "kannada": "kn-IN-SapnaNeural",
+    "malayalam": "ml-IN-MidhunNeural",
+    "marathi": "mr-IN-AarohiNeural",
+    "punjabi": "pa-IN-GurpreetNeural",
+    "telugu": "te-IN-MohanNeural",
+    "urdu": "ur-IN-AsadNeural"
 }
 
 tts_sentence_end = [ ".", "!", "?", ";", "।", "！", "？", "；", "\n", "।"]
@@ -93,17 +89,37 @@ async def setup_openai_realtime(system_prompt: str):
                 if cl.user_session.get("useAzureVoice"):
                     chunk_message = delta['transcript']
                     logger.info(f"Received transcript: {chunk_message}")
+
+                    log_llm_input_output("Whisper", chunk_message, None)  # Log input to Whisper model
                     
                     if item["status"] == "in_progress":
                         collected_messages.append(chunk_message)  # save the message
+
+                        # Extract a 10-digit phone number if present
+                        number_match = re.search(r'\b\d{10}\b', chunk_message)  # Look for a 10-digit number
+                        if number_match:
+                            detected_number = number_match.group(0)
+                            stored_number = cl.user_session.get("verified_number")
+
+                            # If a new number is detected, update session storage
+                            if stored_number is None or stored_number != detected_number:
+                                logger.info(f"Updating verified number from {stored_number} to {detected_number}")
+                                cl.user_session.set("verified_number", detected_number)
 
                         if chunk_message in tts_sentence_end: # sentence end found
                             sent_transcript = ''.join(collected_messages).strip()
                             collected_messages.clear()
 
-                            logger.info(f"Bot is planning to speak: {sent_transcript}") 
-                            chunk = await AzureTTSClient.text_to_speech_realtime(text=sent_transcript, voice=voice)
-                            logger.info(f"Audio chunk length: {len(chunk)}")
+                            sent_transcript = await fix_number_recognition(sent_transcript)
+                            logger.info(f"Bot is planning to speak: {sent_transcript}")
+                            # chunk = await AzureTTSClient.text_to_speech_realtime(text=sent_transcript, voice = voice)
+                            
+                            if cl.user_session.get("useRealtimeTTS"):
+                                chunk = await AzureTTSClient.text_to_speech_realtime(text=sent_transcript, voice=voice)
+                            else:
+                                chunk = await AzureTTSClient.text_to_speech(text=sent_transcript, voice=voice)
+
+                            log_llm_input_output("Azure TTS", sent_transcript, chunk)  # Log input and output to Azure TTS
                             await cl.context.emitter.send_audio_chunk(cl.OutputAudioChunk(mimeType="audio/wav", data=chunk, track=cl.user_session.get("track_id")))
                     
             if 'arguments' in delta:
@@ -145,7 +161,6 @@ async def setup_openai_realtime(system_prompt: str):
             transcript = delta['transcript']
             logger.info(f"Input audio transcription completed: {transcript}")
             if transcript != "":
-                await asyncio.sleep(0.2)  # Wait for 2 seconds to ensure complete transcript is captured
                 await cl.Message(author="You", type="user_message", content=transcript).send()
         
     async def handle_error(event):
@@ -182,7 +197,7 @@ async def start():
     '''Asks the user to select a language, toggle Azure Voice, and set AI temperature.'''
 
     # Reset the verified number at the beginning of a new chat session
-    # cl.user_session.set("verified_number", None)
+    cl.user_session.set("verified_number", None)
 
     settings = await cl.ChatSettings([
         Select(
@@ -192,7 +207,7 @@ async def start():
             initial_index=0,
         ),
         Switch(id="useAzureVoice", label="Use Azure Voice", initial=False),
-        # Switch(id="useRealtimeTTS", label="Use Real-time TTS", initial=True),
+        Switch(id="useRealtimeTTS", label="Use Real-time TTS", initial=True),
         Slider(
             id="Temperature",
             label="Temperature",
@@ -214,7 +229,7 @@ async def setup_agent(settings):
     '''When a user sends a text message, it forwards it to OpenAI for processing.'''
 
     system_prompt = """
-    You are a female intelligent voice assistant for L and T Finance, assisting customers with two-wheeler loans.
+    You are a female intelligent voice assistant for L&T Finance, assisting customers with two-wheeler loans.
 
     - Speak all numbers and dates in English using the India Standard System.
     - Use simple Hindi and commonly spoken English words for better customer engagement.
@@ -238,12 +253,11 @@ async def setup_agent(settings):
         5. After giving the answer, wait for the customer reply.
         6. If the customer dosesn't reply, ask the customer if they have any further questions to ensure a smooth conversation experience.
         7. If the customer provides a new phone number or agreement number, update it and fetch information based on the new details.
-        8. While cheking this new number, speak the new phone number in English digits.
 
     These are the possible conversation flows. Do not use these exact details in actual conversation.
     Example Conversation 1:
     Customer: Hello?
-    Assistant: L and T Finance - Customer Support mein aapka swaagat hai. Mein aapki kaise sahayata kar sakti hun?
+    Assistant: L&T Finance - Customer Support mein aapka swaagat hai. Mein aapki kaise sahayata kar sakti hun?
     Customer: Mujhe apne EMI payment ke baare me jaana hai. 
     Assistant: Kripya apna mobile number ya agreement number pradan karein.
     Customer: 9823456789
@@ -252,7 +266,7 @@ async def setup_agent(settings):
 
     Example Conversation 2:
     Customer: Hello?
-    Assistant:L and T Finance - Customer Support  mein aapka swaagat hai. Mein aapki kaise sahayata kar sakti hun?
+    Assistant:L&T Finance - Customer Support  mein aapka swaagat hai. Mein aapki kaise sahayata kar sakti hun?
     Customer: Kya aap bta sakte hai ki mera EMI payment hua hai ya nahi is mahine ka?
     Assistant: Kripya apna mobile number ya agreement number pradan karein.
     Customer: AG12345
@@ -262,7 +276,7 @@ async def setup_agent(settings):
 
     Example Conversation 3:
     Customer: Hello?
-    Assistant: L and T Finance - Customer Support mein aapka swaagat hai. Mein aapki kaise sahayata kar sakti hun?
+    Assistant: L&T Finance - Customer Support mein aapka swaagat hai. Mein aapki kaise sahayata kar sakti hun?
     Customer: Kya aap bta skte hai ki mera kitna payment abhi bacha hua hai?
     Assistant: Kripya apna mobile number ya agreement number pradan karein.
     Customer: 9876034567
@@ -332,60 +346,3 @@ async def on_end():
     if openai_realtime and openai_realtime.is_connected():
         await openai_realtime.disconnect()
     logger.info("Exiting on_end")
-
-
-
-if __name__ == "__main__":
-    async def main():
-        logger.info("Starting the TTS client")
-        client = AzureTTSClient()
-        logger.info("Client initialized")
-        
-        voice = "hi-IN-KavyaNeural"  # Replace this with the desired voice
-          
-        input, output = client.text_to_speech(voice)
-        logger.info(f"Checking input going to tts under azure_tts.py - {input}")
-
-        async def read_output():
-            audio = b''
-            async for chunk in output:
-                logger.info(f"Received audio chunk of size {len(chunk)}")
-                audio += chunk
-            with open("output.wav", "wb") as f:
-                f.write(b'RIFF')
-                f.write((36 + len(audio)).to_bytes(4, 'little'))
-                f.write(b'WAVE')
-                f.write(b'fmt ')
-                f.write((16).to_bytes(4, 'little'))
-                f.write((1).to_bytes(2, 'little'))
-                f.write((1).to_bytes(2, 'little'))
-                f.write((24000).to_bytes(4, 'little'))
-                f.write((48000).to_bytes(4, 'little'))
-                f.write((2).to_bytes(2, 'little'))
-                f.write((16).to_bytes(2, 'little'))
-                f.write(b'data')
-                f.write((len(audio)).to_bytes(4, 'little'))
-                f.write(audio)
-
-        async def put_input():
-            text_list = [
-                "Hello,",
-                "world!",
-                "आपकी अगली EMI 3500 रूपये है।",  # Example with numbers
-                "My name is Manoranjan",
-                "आपका बकाया 25000 रूपये है।",  # Another example
-                "How can I help you today?"
-            ]
-
-            for text in text_list:
-                input.write(text)  # Send processed text to TTS
-                # await asyncio.sleep(0.2)  # Small delay to ensure full processing
-            
-            # await asyncio.sleep(0.4)  # Extra delay before closing (if needed)
-            input.close()
-        
-        await asyncio.gather(read_output(), put_input())
-        logger.info("TTS client finished")
-
-    asyncio.run(main())
-    

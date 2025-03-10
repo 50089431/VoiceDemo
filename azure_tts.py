@@ -215,3 +215,59 @@ class Client:
             return audio_data
         else:
             print("Failed to synthesize speech:", result.reason)
+
+
+if __name__ == "__main__":
+    async def main():
+        logger.info("Starting the TTS client")
+        client = Client()
+        logger.info("Client initialized")
+        
+        voice = "hi-IN-KavyaNeural"  # Replace this with the desired voice
+          
+        input, output = client.text_to_speech(voice)
+        logger.info(f"Checking input going to tts under azure_tts.py - {input}")
+
+        async def read_output():
+            audio = b''
+            async for chunk in output:
+                logger.info(f"Received audio chunk of size {len(chunk)}")
+                audio += chunk
+            with open("output.wav", "wb") as f:
+                f.write(b'RIFF')
+                f.write((36 + len(audio)).to_bytes(4, 'little'))
+                f.write(b'WAVE')
+                f.write(b'fmt ')
+                f.write((16).to_bytes(4, 'little'))
+                f.write((1).to_bytes(2, 'little'))
+                f.write((1).to_bytes(2, 'little'))
+                f.write((24000).to_bytes(4, 'little'))
+                f.write((48000).to_bytes(4, 'little'))
+                f.write((2).to_bytes(2, 'little'))
+                f.write((16).to_bytes(2, 'little'))
+                f.write(b'data')
+                f.write((len(audio)).to_bytes(4, 'little'))
+                f.write(audio)
+
+        async def put_input():
+            text_list = [
+                "Hello,",
+                "world!",
+                "आपकी अगली EMI 3500 रूपये है।",  # Example with numbers
+                "My name is Manoranjan",
+                "आपका बकाया 25000 रूपये है।",  # Another example
+                "How can I help you today?"
+            ]
+
+            for text in text_list:
+                input.write(text)  # Send processed text to TTS
+                # await asyncio.sleep(0.2)  # Small delay to ensure full processing
+            
+            # await asyncio.sleep(0.4)  # Extra delay before closing (if needed)
+            input.close()
+        
+        await asyncio.gather(read_output(), put_input())
+        logger.info("TTS client finished")
+
+    asyncio.run(main())
+    
