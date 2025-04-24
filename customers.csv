@@ -1,0 +1,6 @@
+customer_name,gender,emi_amount,past_bounces,last_payment_date
+Amit Sharma,Male,3200,2,'24-03-2025'
+Riya Verma,Female,4500,1,'20-03-2025'
+Rahul Mehra,Male,2100,3,'15-03-2025'
+Sneha Kulkarni,Female,3900,0,'10-03-2025'
+Vikram Patel,Male,5000,1,'08-03-2025'
