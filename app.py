@@ -219,13 +219,13 @@ async def setup_agent(settings):
     # Prepare variables
     name = customer['customer_name']
     gender = customer['gender']
-    emi = customer['emi_amount']
+    emi = customer['emi_amount_words']
     past_bounces = customer['past_bounces']
     last_payment_date = customer['last_payment_date']
     attempts_tillnow = customer['attempts_tillnow']
     ptp_tillnow = customer['ptp_tillnow']
     ptp_givendate = customer['ptp_givendate']
-    ptp_fordate = customer['ptp_fordate']
+    ptp_fordate = customer['ptp_fordate_words']
     payment_status = customer['payment_status']
     print(name, gender, emi, past_bounces, last_payment_date, attempts_tillnow,ptp_tillnow,ptp_givendate,ptp_fordate, payment_status)
 
@@ -269,6 +269,8 @@ async def setup_agent(settings):
 
     3. Purpose of Call
         Purpose: Yeh call aapke L n T Finance ke two-wheeler loan ki EMI payment ke sambandh mein hai.
+
+        If the customer asks to call back, get the date and time.
         
         1. EMI Reminder & Reason for Delay - Mention EMI amount in English.
         Aapki {emi} rupee ki EMI due hai jo abhi tak pay nahi hui hai. 
@@ -318,9 +320,11 @@ async def setup_agent(settings):
                 Samajh gayi Sir/Mam. Aap jab ready ho payment karne ke liye, 
                 toh aap humare Quick Pay options ka use kar sakte hain.Dhanyawaad!
 
-        5. If customer says to pay in future, record the date.
+        5. If customer says to pay in future, record the date. Say that you will call them on that date and time.
+            Do not talk about payment options.
             Theek hai sir / maaam, aapne 'customer's date' ko payment karne ka promise kiya hai. Kitne bje krenge aap? (record the time)
             Aap tb tk paiso ka intezaam karne ki koshish karein. Mein aapko 'customer's date' and 'time' pr yaad dilane ke liye call karungi.
+
 
         6. If customer agrees to make the payment:
         Thank you Sir, Toh aap payment kaise karna chahenge? 

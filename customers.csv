@@ -1,6 +1,6 @@
-customer_name,gender,emi_amount,past_bounces,last_payment_date,attempts_tillnow,ptp_tillnow,ptp_givendate,ptp_fordate,payment_status
-Amit Sharma,Male,3200,2,'24-03-2025',3,2,'24-03-2025','25-04-2025',False
-Riya Verma,Female,4500,1,'20-03-2025',1,1,NA,NA,False
-Rahul Mehra,Male,2100,3,'15-03-2025',1,0,NA,NA,False
-Neha Kulkarni,Female,3900,0,'10-03-2025',2,1,NA,NA,False
-Vikram Patel,Male,5000,1,'08-03-2025',2,1,'22-03-2025','25-04-2025',False
+customer_name,gender,emi_amount,emi_amount_words,past_bounces,last_payment_date,attempts_tillnow,ptp_tillnow,ptp_givendate,ptp_fordate,ptp_fordate_words,payment_status
+Amit Sharma,Male,3200,Three thousand two hundred,2,24-03-2025,3,2,24-03-2025,28-04-2025,twenty eight April twenty twenty five,FALSE
+Riya Verma,Female,4500,Four thousand five hundred,1,20-03-2025,1,1,NA,NA,NA,FALSE
+Rahul Mehra,Male,2100,Two thousand one hundred,3,15-03-2025,1,0,NA,NA,NA,FALSE
+Neha Kulkarni,Female,3900,thirty nine hundred,0,10-03-2025,2,1,NA,NA,NA,FALSE
+Vikram Patel,Male,5000,five thousand,1,08-03-2025,2,1,22-03-2025,28-04-2025,twenty eight April twenty twenty five,FALSE
