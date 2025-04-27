@@ -169,7 +169,7 @@ class RealtimeAPI(RealtimeEventHandler):
         async for message in self.ws:
             event = json.loads(message.data)
             if event['type'] == "error":
-                logger.error("ERROR", message)
+                logger.error(f"ERROR : {message}")
             self.log("received:", event)
             self.dispatch(f"server.{event['type']}", event)
             self.dispatch("server.*", event)

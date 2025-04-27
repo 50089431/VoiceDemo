@@ -15,7 +15,7 @@ from logger import log_query_search, log_tool_search  # Import the logger functi
 
 rag_search_client = SearchClient(
     endpoint=os.environ["AZURE_SEARCH_ENDPOINT"],
-    index_name=os.environ["INDEX_NAME"],
+    index_name=os.environ["LOAN_INDEX_NAME"],
     credential=AzureKeyCredential(os.environ["AZURE_SEARCH_KEY"]) 
 )
 fetch_relevant_documents_def = {

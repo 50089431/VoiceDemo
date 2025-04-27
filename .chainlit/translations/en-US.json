@@ -23,10 +23,7 @@
                     "error": "An error occurred"
                 }
             },
-            "attachments": {
-                "cancelUpload": "Cancel upload",
-                "removeAttachment": "Remove attachment"
-            },
+            
             "newChatDialog": {
                 "createNewChat": "Create new chat?",
                 "clearChat": "This will clear the current messages and start a new chat.",
@@ -123,19 +120,13 @@
                         "placeholder": "Type your message here..."
                     },
                     "speechButton": {
-                        "start": "Start recording",
-                        "stop": "Stop recording",
+                        "start": "Start the call",
+                        "stop": "End call",
                         "loading": "Connecting"
                     },
                     "SubmitButton": {
                         "sendMessage": "Send message",
                         "stopTask": "Stop Task"
-                    },
-                    "UploadButton": {
-                        "attachFiles": "Attach files"
-                    },
-                    "waterMark": {
-                        "text": "Built with"
                     }
                 },
                 "Messages": {

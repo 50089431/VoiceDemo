@@ -171,9 +171,9 @@ def auth_callback(username: str, password: str):
     logger.info(f"Entering auth_callback with username: {username}")
     # Fetch the user matching username from your database
     # and compare the hashed password with the value stored in the database
-    if (username, password) == ("raj", "pass123"):
+    if (username, password) == ("Agent", "pass123"):
         return cl.User(
-            identifier="raj", metadata={"role": "admin", "provider": "credentials"}
+            identifier="agent", metadata={"role": "admin", "provider": "credentials"}
         )
     else:
         return None
@@ -200,7 +200,7 @@ async def start():
         )
     ]).send()
 
-    #Calls setup_agent(settings) to configure the AI.
+    # Calls setup_agent(settings) to configure the AI.
     await setup_agent(settings)
     logger.info("Exiting start")
 
@@ -215,13 +215,19 @@ async def setup_agent(settings):
 
     # Randomly select a customer
     customer = df.sample(1).iloc[0]
+    print(customer)
     # Prepare variables
     name = customer['customer_name']
     gender = customer['gender']
     emi = customer['emi_amount']
     past_bounces = customer['past_bounces']
     last_payment_date = customer['last_payment_date']
-    print(name, gender, emi, past_bounces, last_payment_date)
+    attempts_tillnow = customer['attempts_tillnow']
+    ptp_tillnow = customer['ptp_tillnow']
+    ptp_givendate = customer['ptp_givendate']
+    ptp_fordate = customer['ptp_fordate']
+    payment_status = customer['payment_status']
+    print(name, gender, emi, past_bounces, last_payment_date, attempts_tillnow,ptp_tillnow,ptp_givendate,ptp_fordate, payment_status)
 
     # Gender-specific honorific
     salutation = "Mr." if gender.lower() == "male" else "Ms."
@@ -253,6 +259,7 @@ async def setup_agent(settings):
 
     2. Customer Verification
         Kya meri baat {salutation} {name} se ho rahi hai? Wait for customer to respond. 
+        If wrong number: Say sorry and end the call. 
         If Nahi: Kya main jaan sakti hoon ki aapka {salutation} {name} se kya sambandh hai?
         Ask if they are aware of the loan:
             If yes: Kya aap unke 2-Wheeler loan ke baare mein jaante hai?
@@ -261,27 +268,40 @@ async def setup_agent(settings):
         If YES: Proceed with the call
 
     3. Purpose of Call
-        Purpose: Yeh call aapke L&T Finance ke two-wheeler loan ki EMI payment ke sambandh mein hai.
+        Purpose: Yeh call aapke L n T Finance ke two-wheeler loan ki EMI payment ke sambandh mein hai.
         
-        1. EMI Reminder & Reason for Delay - Mention EMI amount in english.
+        1. EMI Reminder & Reason for Delay - Mention EMI amount in English.
         Aapki {emi} rupee ki EMI due hai jo abhi tak pay nahi hui hai. 
         Kya aap bata sakte hain ki payment mein deri ka kya karan hai?
+
+        If the customer says that he has already made the payment:
+        Ask for the payment date, amount, mode and reference number.
+            a. Kya aap mujhe payment ki tareekh and amount bta skte hain? (Wait for reply)
+            b. Kis mode se aapne pay kra tha? Kuch reference number ya transaction ID hai? (Wait for reply)
+            Make sure the customer gives all four payment details.
+        If the customer has paid in the last 2 days, inform them that it will take 2-3 days to reflect in the system.
+        If the customer has paid more than 2 days ago, ask them to check with their bank.
 
         2. If customer tells the reason for delay: 
             a. Empathise on the reason. 
             b. If it's medical related, ask if this is the right time to talk. If not, ask for alternate time and end this call. 
             c. If you proceed with the call - 
                 Mention the due date and charges
-                a. Due Date: - aapki EMI 3rd ko due thi, aaj already 5 tareek ho chuki hai.
-                b. Bounce Charges: - Rs. 500/- Mention on every call. 
-                c. Penalty Charges: - 2% late penalty charges on the EMI amount on a pro-rata basis.
+                a. Due Date: - aapki EMI 3rd ko due thi, already kafi din ho gaye hain.
+                b. Bounce Charges: - Rs. 500/- ke bounce charges (mention on every call)
+                c. Penalty Charges: - 2% late penalty charges 'pro-rata' basis for lag rhe hain.
+                d. Check customer PTP - {ptp_tillnow} is the number of times the customer has promised to pay.
+                If this value is not null, mention that - 
+                    Aapne already {attempts_tillnow} baar payment ki baat kr chuke hai, and abhi tk nahi kra hai payment. 
+                    Aapne {ptp_fordate} ko pay krne ka promise kra tha, and abhi tk nahi hua hai ye. Kya aap abhi pay krskte hain?
 
         3. If the customer doesn't give proper reasoning – Further Probing:
-            a. Kya main jaan sakta hoon ki aap salaried hain ya business chalate hain?
-            b. Aap kis din apni current month ki EMI pay karne ka plan kar rahe hain?
-            c. Jo date aapne batayi hai, us din aap funds kaise manage karenge, kya aap thoda sa idea de sakte hain?
+            a. Kya main jaan sakti hoon ki aap salaried hain ya business chalate hain? (Wait for reply)
+            b. Aap kis din apni current month ki EMI pay karne ka plan kar rahe hain? (Wait for reply)
+            c. Aap 'date' ko funds kaise manage karenge, kya aap thoda sa idea de sakte hain? (Wait for reply)
         
         4. If customer rejects to make the payment: 
+            Do not ask for Payment date or mode.
             Explain the consequences – If payment is not done on time, credit record will get affected. You may face challenges in acquiring new loans.
             Say something like:
             a. Aapke account pr already {past_bounces} baar bounce ke charges lge hue hai. Ye aapka penalty amount badta hi jaa rha hai.  
@@ -289,13 +309,22 @@ async def setup_agent(settings):
             c. Agr aage chal kr kuch problem aayi, and aapko loan lene ki jroort hui. Pr cibil score kharab hone ki wajah se aapko naye loan lene mein dikkat aa sakti hai.
 
             Provide alternate solutions:
-                a. Kya aap apne kisi rishtedaar ya dost se temporary support le sakte hain?
-                b. Kya aap apni savings jaise Fixed Deposit ya Recurring Deposit se fund arrange kar sakte hain?
-                c. Agar aap salaried hain toh advance salary ka option explore kiya ja sakta hai; agar aap self-employed hain toh colleagues ya business savings se support mil sakta hai.
-                d. Aapke kisi investment jaise Shares, Mutual Funds, ya Debentures se bhi fund arrange karne ka vikalp ho sakta hai.
+                a. Kya aap apne kisi rishtedaar ya dost se temporary support le sakte hain? (Wait for reply)
+                b. Kya aap apni savings jaise Fixed Deposit ya Recurring Deposit se fund arrange kar sakte hain? (Wait for reply)
+                c. Agar aap salaried hain toh advance salary ka option explore kiya ja sakta hai; agar aap self-employed hain toh colleagues ya business savings se support mil sakta hai. (Wait for reply)
+                d. Aapke kisi investment jaise Shares, Mutual Funds, ya Debentures se bhi fund arrange karne ka vikalp ho sakta hai. (Wait for reply)
 
-        5. If customer agrees to make the payment:
-        Thank you Sir, Toh aap payment kaise karna chaahenge? (Pitch Digital mode first - "Kya Aap online payment kr skte hai abhi?") 
+            If the customer refuses repeatedly, use:
+                Samajh gayi Sir/Mam. Aap jab ready ho payment karne ke liye, 
+                toh aap humare Quick Pay options ka use kar sakte hain.Dhanyawaad!
+
+        5. If customer says to pay in future, record the date.
+            Theek hai sir / maaam, aapne 'customer's date' ko payment karne ka promise kiya hai. Kitne bje krenge aap? (record the time)
+            Aap tb tk paiso ka intezaam karne ki koshish karein. Mein aapko 'customer's date' and 'time' pr yaad dilane ke liye call karungi.
+
+        6. If customer agrees to make the payment:
+        Thank you Sir, Toh aap payment kaise karna chahenge? 
+        Wait for the customer to respond. 
             1. If customer agrees for online payment-
                 Priority 1: Planet App - 
                 "Kya aapke pass LTFS Planet App hai?" Wait for the customer to respond
@@ -347,17 +376,14 @@ async def setup_agent(settings):
                 Sir, agar aap branch visit karna chahte hain toh kripya mujhe batayein kaunsi branch mein jaana chaahenge?
                 Main aapko us branch ka sahi location confirm kar deta hoon.
 
-        8. If not ready to pay on the same call, Record the PTP date.
-        Sir, please aap diye gaye date par payment krne ki koshish karein.
-
-        9. Take additional details from customer before closing the call.
+        7. Take additional details from customer before closing the call.
             1. Confirm the Vehicle User Status - ask the customer to confirm who is currently using the vehicle.
             Sir, kripya batayein ki gaadi ka istemal kaun kar raha hai?
 
             2. Confirm if there is any alternate contact number available.
             Kya aapka koi aur contact number hai jo aap file mein add krna chahte hai?
 
-        10. End the call with appropriate closing statements.
+        8. End the call with appropriate closing statements.
 
     """    
 
@@ -367,7 +393,7 @@ async def setup_agent(settings):
     app_user = cl.user_session.get("user")
     identifier = app_user.identifier if app_user else "admin"
     await cl.Message(
-        content="Waiting for call to connect.."
+        content=f"Calling {salutation} {name} .."
     ).send()
 
     system_prompt = system_prompt.replace("<customer_language>", settings["Language"])
@@ -411,6 +437,16 @@ async def on_audio_chunk(chunk: cl.InputAudioChunk):
             logger.info("RealtimeClient is not connected")
     # logger.info("Exiting on_audio_chunk")
 
+# @cl.on_audio_end
+# @cl.on_chat_end
+# @cl.on_stop
+# async def on_end():
+#     logger.info("Entering on_end")
+#     openai_realtime: RealtimeClient = cl.user_session.get("openai_realtime")
+#     if openai_realtime and openai_realtime.is_connected():
+#         await openai_realtime.disconnect()
+#     logger.info("Exiting on_end")
+
 @cl.on_audio_end
 @cl.on_chat_end
 @cl.on_stop
@@ -418,5 +454,56 @@ async def on_end():
     logger.info("Entering on_end")
     openai_realtime: RealtimeClient = cl.user_session.get("openai_realtime")
     if openai_realtime and openai_realtime.is_connected():
-        await openai_realtime.disconnect()
+        try:
+            # Get conversation summary before disconnecting
+            summary_prompt = (
+                "Based on our conversation, please provide:\n"
+                "1. Payment Status: Did the customer agree to pay? When?\n"
+                "2. Next Steps: What actions were agreed upon?\n"
+                "Keep each point to one line only."
+            )
+            
+            await openai_realtime.send_user_message_content([{
+                "type": "input_text",
+                "text": summary_prompt
+            }])
+
+            # # Wait until there's no active response
+            await asyncio.sleep(0.5)
+
+            # # Now it's safe to request a response
+            # await openai_realtime.create_response()
+            
+            # Wait for the summary response
+            response = await openai_realtime.wait_for_next_completed_item()
+            print("#####")
+            print(f'response = {response}')
+
+            # summary = response['item']['formatted']['transcript']
+            summary = response['item']['formatted'].get('transcript', '')
+            print("#####")
+            print(f'summary = {summary}')
+
+            # Format and send summary to the chat
+            # formatted_summary = (
+            #     "📋 **Call Summary**\n\n"
+            #     f"{summary}"
+            # )
+            # print("#####")
+            # print(f'formatted_summary = {formatted_summary}')
+            
+            # await cl.Message(
+            #     content=formatted_summary,
+            #     author="System",
+            #     # disable_audio=True,
+            # ).send()
+            await cl.Message(content=summary, author = 'System').send()
+
+            # Disconnect after getting summary
+            await openai_realtime.disconnect()
+            
+        except Exception as e:
+            logger.error(f"Error getting conversation summary: {e}")
+            await openai_realtime.disconnect()
+    
     logger.info("Exiting on_end")
