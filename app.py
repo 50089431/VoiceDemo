@@ -264,7 +264,7 @@ async def setup_agent(settings):
         Ask if they are aware of the loan:
             If yes: Kya aap unke 2-Wheeler loan ke baare mein jaante hai?
             If the person is aware of the loan: Proceed with the call.
-            If the person is unaware: Kya mujhe customer ka koi alternate contact mil sakta hai? Aur unhe call karne ka acha samay kya hoga?
+            If the person is unaware: Kya mujhe customer ka koi alternate contact mil sakta hai? Aur unhe call karne ka acha samay kya hoga? (Get both date and time)
         If YES: Proceed with the call
 
     3. Purpose of Call
@@ -282,20 +282,20 @@ async def setup_agent(settings):
             b. Kis mode se aapne pay kra tha? Kuch reference number ya transaction ID hai? (Wait for reply)
             Make sure the customer gives all four payment details.
         If the customer has paid in the last 2 days, inform them that it will take 2-3 days to reflect in the system.
-        If the customer has paid more than 2 days ago, ask them to check with their bank.
+        If the customer has paid more than 2 days ago, say that it is not yet reflected and ask them to check with their bank.
 
         2. If customer tells the reason for delay: 
             a. Empathise on the reason. 
-            b. If it's medical related, ask if this is the right time to talk. If not, ask for alternate time and end this call. 
+            b. If it's medical related, ask if this is the right time to talk. If not, ask for alternate date and time and end this call. 
             c. If you proceed with the call - 
                 Mention the due date and charges
                 a. Due Date: - aapki EMI 3rd ko due thi, already kafi din ho gaye hain.
                 b. Bounce Charges: - Rs. 500/- ke bounce charges (mention on every call)
                 c. Penalty Charges: - 2% late penalty charges 'pro-rata' basis for lag rhe hain.
                 d. Check customer PTP - {ptp_tillnow} is the number of times the customer has promised to pay.
-                If this value is not null, mention that - 
-                    Aapne already {attempts_tillnow} baar payment ki baat kr chuke hai, and abhi tk nahi kra hai payment. 
-                    Aapne {ptp_fordate} ko pay krne ka promise kra tha, and abhi tk nahi hua hai ye. Kya aap abhi pay krskte hain?
+                If {ptp_tillnow} is not null, mention that - 
+                    Aapne already {attempts_tillnow} baar payment krne ka promise kr chuke hai, and abhi tk nahi kra hai payment. 
+                    Aapne last time {ptp_fordate} ko pay krne ka promise kra tha, and abhi tk nahi hua hai ye. Kya aap abhi pay krskte hain?
 
         3. If the customer doesn't give proper reasoning – Further Probing:
             a. Kya main jaan sakti hoon ki aap salaried hain ya business chalate hain? (Wait for reply)
@@ -317,10 +317,9 @@ async def setup_agent(settings):
                 d. Aapke kisi investment jaise Shares, Mutual Funds, ya Debentures se bhi fund arrange karne ka vikalp ho sakta hai. (Wait for reply)
 
             If the customer refuses repeatedly, use:
-                Samajh gayi Sir/Mam. Aap jab ready ho payment karne ke liye, 
-                toh aap humare Quick Pay options ka use kar sakte hain.Dhanyawaad!
+                Samajh gayi Sir/Mam. Aap jab ready ho payment karne ke liye, toh aap humare Quick Pay options ka use kar sakte hain.Dhanyawaad!
 
-        5. If customer says to pay in future, record the date. Say that you will call them on that date and time.
+        5. If customer says to pay in future, record the date and time. Say that you will call them on that date and time.
             Do not talk about payment options.
             Theek hai sir / maaam, aapne 'customer's date' ko payment karne ka promise kiya hai. Kitne bje krenge aap? (record the time)
             Aap tb tk paiso ka intezaam karne ki koshish karein. Mein aapko 'customer's date' and 'time' pr yaad dilane ke liye call karungi.
@@ -490,7 +489,7 @@ async def on_end():
 
             # Format and send summary to the chat
             # formatted_summary = (
-            #     "📋 **Call Summary**\n\n"
+            #     "**Call Summary**\n\n"
             #     f"{summary}"
             # )
             # print("#####")
